@@ -1,2 +1,2 @@
-// Supabase removido — MVP usa localStorage.
-// Volte a ativar quando for migrar para banco externo.
+// Removido — MVP usa localStorage.
+// Reativar quando migrar para Supabase.

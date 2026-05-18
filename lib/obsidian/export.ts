@@ -1,5 +1,6 @@
 import type { CortexRecord } from "@/lib/types";
 import { recordToMarkdown, generateDashboardMarkdown, generateDailyNoteMarkdown } from "./markdown";
+import { sanitizeFileName } from "./paths";
 
 function isClient(): boolean {
   return typeof window !== "undefined";
@@ -18,10 +19,7 @@ function downloadBlob(content: string, filename: string, mime = "text/markdown")
 
 export function exportRecordAsMarkdown(record: CortexRecord): void {
   const md = recordToMarkdown(record);
-  const safe = record.title
-    .replace(/[<>:"/\\|?*]/g, "")
-    .trim()
-    .slice(0, 80);
+  const safe = sanitizeFileName(record.title).slice(0, 80) || "untitled";
   downloadBlob(md, `${safe}.md`);
 }
 

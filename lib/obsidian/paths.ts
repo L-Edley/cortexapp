@@ -1,6 +1,7 @@
 import type { CortexRecord, CortexRecordType } from "@/lib/types";
 
-export function sanitizeFileName(title: string): string {
+export function sanitizeFileName(title: string | null | undefined): string {
+  if (!title) return "";
   return title
     .replace(/[<>:"/\\|?*]/g, "")
     .replace(/\s+/g, " ")
