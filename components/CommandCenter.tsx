@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import type { CortexRecord } from "@/lib/types";
 import { saveRecord } from "@/lib/storageProvider";
 import VoiceCenter from "@/components/VoiceCenter";
@@ -9,16 +9,20 @@ export default function CommandCenter() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState("SISTEMA ONLINE. AGUARDANDO COMANDOS.");
+  const [sources, setSources] = useState<Array<{ title: string; url: string }>>([]);
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+  const [followUp, setFollowUp] = useState<string | null>(null);
+  const [tips, setTips] = useState<string[]>([]);
 
   const speechQueue = useRef<string[]>([]);
   const currentlySpeaking = useRef<boolean>(false);
 
-  const enqueueSpeech = (text: string) => {
+  const enqueueSpeech = useCallback((text: string) => {
     speechQueue.current.push(text);
     processSpeechQueue();
-  };
+  }, []);
 
-  const processSpeechQueue = async () => {
+  const processSpeechQueue = useCallback(async () => {
     if (currentlySpeaking.current || speechQueue.current.length === 0) return;
 
     currentlySpeaking.current = true;
@@ -50,7 +54,6 @@ export default function CommandCenter() {
       console.warn("ElevenLabs TTS failed, falling back to local speech synthesis:", err);
     }
 
-    // Fallback para Web Speech API
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
@@ -75,7 +78,7 @@ export default function CommandCenter() {
       currentlySpeaking.current = false;
       processSpeechQueue();
     }
-  };
+  }, []);
 
   const handleSend = async (text?: string) => {
     const msg = (text ?? message).trim();
@@ -83,8 +86,11 @@ export default function CommandCenter() {
 
     setLoading(true);
     setAiResponse("PROCESSANDO...");
+    setSources([]);
+    setSuggestion(null);
+    setFollowUp(null);
+    setTips([]);
 
-    // Limpa a fila e cancela a fala anterior
     if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
@@ -93,142 +99,61 @@ export default function CommandCenter() {
 
     try {
       if (!text) setMessage("");
-      const response = await fetch("/api/cortex/stream", {
+      const response = await fetch("/api/aion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: msg }),
       });
 
-      if (!response.ok || !response.body) {
+      if (!response.ok) {
         throw new Error("ERRO DE COMUNICAÇÃO");
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let streamBuffer = "";
-      let accumulatedText = "";
-      let accumulatedJson = "";
-      let currentSection: "idle" | "text" | "json" = "idle";
-      const spokenSentences = new Set<string>();
-      let sentenceAccumulator = "";
+      const data = await response.json();
+      const { reply, voiceReply, action, record: recordData, sources: responseSources, suggestion: sug, followUpQuestion, tips: tipList } = data;
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+      const displayText = reply || "PROCESSADO.";
+      setAiResponse(displayText.toUpperCase());
 
-        const chunk = decoder.decode(value, { stream: true });
-        streamBuffer += chunk;
+      if (responseSources && responseSources.length > 0) {
+        setSources(responseSources);
+      }
+      if (sug) setSuggestion(sug);
+      if (followUpQuestion) setFollowUp(followUpQuestion);
+      if (tipList && tipList.length > 0) setTips(tipList);
 
-        const lines = streamBuffer.split("\n\n");
-        streamBuffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const parsed = JSON.parse(line.substring(6));
-            if (parsed.error) {
-              throw new Error(parsed.error);
-            }
-
-            const token = parsed.token;
-            if (!token) continue;
-
-            for (let i = 0; i < token.length; i++) {
-              const char = token[i];
-
-              if (token.substring(i, i + 6) === "[TEXT]") {
-                currentSection = "text";
-                i += 5;
-                continue;
-              }
-              if (token.substring(i, i + 10) === "[END_TEXT]") {
-                currentSection = "idle";
-                i += 9;
-
-                if (sentenceAccumulator.trim()) {
-                  const finalSentence = sentenceAccumulator.trim();
-                  if (!spokenSentences.has(finalSentence)) {
-                    spokenSentences.add(finalSentence);
-                    enqueueSpeech(finalSentence);
-                  }
-                  sentenceAccumulator = "";
-                }
-                continue;
-              }
-              if (token.substring(i, i + 6) === "[JSON]") {
-                currentSection = "json";
-                i += 5;
-                continue;
-              }
-              if (token.substring(i, i + 10) === "[END_JSON]") {
-                currentSection = "idle";
-                i += 9;
-                continue;
-              }
-
-              if (currentSection === "text") {
-                accumulatedText += char;
-                sentenceAccumulator += char;
-                setAiResponse(accumulatedText.toUpperCase());
-
-                if ([".", "!", "?", "\n"].includes(char)) {
-                  const sentence = sentenceAccumulator.trim();
-                  if (sentence.length > 2 && !spokenSentences.has(sentence)) {
-                    spokenSentences.add(sentence);
-                    enqueueSpeech(sentence);
-                    sentenceAccumulator = "";
-                  }
-                }
-              } else if (currentSection === "json") {
-                accumulatedJson += char;
-              }
-            }
-          } catch (e) {
-            console.warn("Parse error in stream line:", e);
-          }
-        }
+      const ttsText = voiceReply || reply || "";
+      if (ttsText) {
+        enqueueSpeech(ttsText);
       }
 
-      if (sentenceAccumulator.trim()) {
-        const finalSentence = sentenceAccumulator.trim();
-        if (!spokenSentences.has(finalSentence)) {
-          spokenSentences.add(finalSentence);
-          enqueueSpeech(finalSentence);
-        }
+      if (action === "create_record" && recordData) {
+        const normalizedDescription =
+          recordData.description &&
+          recordData.description.trim().toLowerCase() !== recordData.title.trim().toLowerCase() &&
+          recordData.description.trim().toLowerCase() !== msg.trim().toLowerCase()
+            ? recordData.description
+            : "";
+
+        const record: CortexRecord = {
+          id: crypto.randomUUID?.() ?? Date.now().toString(),
+          type: recordData.type,
+          title: recordData.title,
+          description: normalizedDescription,
+          rawInput: msg,
+          priority: recordData.priority,
+          project: recordData.project,
+          amount: recordData.amount,
+          category: recordData.category,
+          dueDate: recordData.dueDate,
+          nextAction: recordData.nextAction,
+          status: "pending",
+          createdAt: new Date().toISOString(),
+        };
+
+        await saveRecord(record);
       }
-
-      if (accumulatedJson.trim()) {
-        try {
-          const data = JSON.parse(accumulatedJson.trim());
-          const normalizedDescription =
-            data.description &&
-            data.description.trim().toLowerCase() !== data.title.trim().toLowerCase() &&
-            data.description.trim().toLowerCase() !== msg.trim().toLowerCase()
-              ? data.description
-              : "";
-
-          const record: CortexRecord = {
-            id: crypto.randomUUID?.() ?? Date.now().toString(),
-            type: data.type,
-            title: data.title,
-            description: normalizedDescription,
-            rawInput: msg,
-            priority: data.priority,
-            project: data.project,
-            amount: data.amount,
-            category: data.category,
-            dueDate: data.dueDate,
-            nextAction: data.nextAction,
-            status: "pending",
-            createdAt: new Date().toISOString(),
-          };
-
-          await saveRecord(record);
-        } catch (err) {
-          console.error("Failed to parse or save record from stream:", err);
-        }
-      }
-    } catch (err) {
+    } catch {
       setAiResponse("FALHA AO PROCESSAR COMANDO. TENTE NOVAMENTE.");
     } finally {
       setLoading(false);
@@ -261,6 +186,48 @@ export default function CommandCenter() {
         </span>
         <span className="cmd-cursor">█</span>
       </div>
+
+      {suggestion && (
+        <div className="cmd-suggestion">
+          <span className="cmd-suggestion-icon">💡</span>
+          <span className="cmd-suggestion-text">{suggestion}</span>
+        </div>
+      )}
+
+      {followUp && (
+        <div className="cmd-followup">
+          <span className="cmd-followup-icon">❓</span>
+          <span className="cmd-followup-text">{followUp}</span>
+        </div>
+      )}
+
+      {tips.length > 0 && (
+        <div className="cmd-tips">
+          <span className="cmd-tips-title">DICAS:</span>
+          {tips.map((tip, i) => (
+            <span key={i} className="cmd-tip-item">
+              • {tip}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {sources.length > 0 && (
+        <div className="cmd-sources">
+          <span className="cmd-sources-title">FONTES:</span>
+          {sources.map((s, i) => (
+            <a
+              key={i}
+              href={s.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="cmd-source-link"
+            >
+              {s.title}
+            </a>
+          ))}
+        </div>
+      )}
 
       <div className="cmd-input-row">
         <span className="cmd-prompt">USER › </span>
