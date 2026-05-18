@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { MicOff, AlertTriangle } from "lucide-react";
-import type { CortexApiResponse, CortexRecord } from "@/lib/types";
+import { useState, useRef } from "react";
+import type { CortexRecord } from "@/lib/types";
 import { saveRecord } from "@/lib/storageProvider";
 import VoiceCenter from "@/components/VoiceCenter";
 
@@ -11,6 +10,71 @@ export default function CommandCenter() {
   const [loading, setLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState("SISTEMA ONLINE. AGUARDANDO COMANDOS.");
 
+  const speechQueue = useRef<string[]>([]);
+  const currentlySpeaking = useRef<boolean>(false);
+
+  const enqueueSpeech = (text: string) => {
+    speechQueue.current.push(text);
+    processSpeechQueue();
+  };
+
+  const processSpeechQueue = async () => {
+    if (currentlySpeaking.current || speechQueue.current.length === 0) return;
+
+    currentlySpeaking.current = true;
+    const text = speechQueue.current.shift()!;
+
+    try {
+      const res = await fetch(`/api/tts?text=${encodeURIComponent(text)}`);
+      if (res.status === 200) {
+        const audioBlob = await res.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+
+        audio.onended = () => {
+          currentlySpeaking.current = false;
+          processSpeechQueue();
+        };
+
+        audio.onerror = () => {
+          currentlySpeaking.current = false;
+          processSpeechQueue();
+        };
+
+        await audio.play();
+        return;
+      }
+    } catch (err) {
+      console.warn("ElevenLabs TTS failed, falling back to local speech synthesis:", err);
+    }
+
+    // Fallback para Web Speech API
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "pt-BR";
+      utterance.rate = 0.95;
+      const voices = window.speechSynthesis.getVoices();
+      const ptVoice = voices.find((v) => v.lang.startsWith("pt"));
+      if (ptVoice) utterance.voice = ptVoice;
+
+      utterance.onend = () => {
+        currentlySpeaking.current = false;
+        processSpeechQueue();
+      };
+
+      utterance.onerror = () => {
+        currentlySpeaking.current = false;
+        processSpeechQueue();
+      };
+
+      window.speechSynthesis.speak(utterance);
+    } else {
+      currentlySpeaking.current = false;
+      processSpeechQueue();
+    }
+  };
+
   const handleSend = async (text?: string) => {
     const msg = (text ?? message).trim();
     if (!msg) return;
@@ -18,71 +82,149 @@ export default function CommandCenter() {
     setLoading(true);
     setAiResponse("PROCESSANDO...");
 
+    // Limpa a fila e cancela a fala anterior
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    speechQueue.current = [];
+    currentlySpeaking.current = false;
+
     try {
       if (!text) setMessage("");
-      const res = await fetch("/api/cortex", {
+      const response = await fetch("/api/cortex/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: msg }),
       });
 
-      if (!res.ok) {
+      if (!response.ok || !response.body) {
         throw new Error("ERRO DE COMUNICAÇÃO");
       }
 
-      const data: CortexApiResponse = await res.json();
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let streamBuffer = "";
+      let accumulatedText = "";
+      let accumulatedJson = "";
+      let currentSection: "idle" | "text" | "json" = "idle";
+      const spokenSentences = new Set<string>();
+      let sentenceAccumulator = "";
 
-      const normalizedDescription =
-        data.description &&
-        data.description.trim().toLowerCase() !== data.title.trim().toLowerCase() &&
-        data.description.trim().toLowerCase() !== msg.trim().toLowerCase()
-          ? data.description
-          : "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
 
-      const record: CortexRecord = {
-        id: crypto.randomUUID?.() ?? Date.now().toString(),
-        type: data.type,
-        title: data.title,
-        description: normalizedDescription,
-        rawInput: msg,
-        priority: data.priority,
-        project: data.project,
-        amount: data.amount,
-        category: data.category,
-        dueDate: data.dueDate,
-        nextAction: data.nextAction,
-        status:
-          data.type === "task"
-            ? "pending"
-            : data.type === "idea"
-              ? "pending"
-              : "pending",
-        createdAt: new Date().toISOString(),
-      };
+        const chunk = decoder.decode(value, { stream: true });
+        streamBuffer += chunk;
 
-      await saveRecord(record);
+        const lines = streamBuffer.split("\n\n");
+        streamBuffer = lines.pop() || "";
 
-      let responseText = "";
-      if (data.type === "expense") {
-        responseText = `Registrado. ${data.category || "Despesa"}: R$ ${data.amount}.`;
-      } else if (data.type === "task") {
-        responseText = `Entendido. Tarefa '${data.title}' adicionada com prioridade ${data.priority === "high" ? "alta" : "normal"}.`;
-      } else {
-        responseText = `Entendido. '${data.title}' registrado no banco de dados.`;
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const parsed = JSON.parse(line.substring(6));
+            if (parsed.error) {
+              throw new Error(parsed.error);
+            }
+
+            const token = parsed.token;
+            if (!token) continue;
+
+            for (let i = 0; i < token.length; i++) {
+              const char = token[i];
+
+              if (token.substring(i, i + 6) === "[TEXT]") {
+                currentSection = "text";
+                i += 5;
+                continue;
+              }
+              if (token.substring(i, i + 10) === "[END_TEXT]") {
+                currentSection = "idle";
+                i += 9;
+
+                if (sentenceAccumulator.trim()) {
+                  const finalSentence = sentenceAccumulator.trim();
+                  if (!spokenSentences.has(finalSentence)) {
+                    spokenSentences.add(finalSentence);
+                    enqueueSpeech(finalSentence);
+                  }
+                  sentenceAccumulator = "";
+                }
+                continue;
+              }
+              if (token.substring(i, i + 6) === "[JSON]") {
+                currentSection = "json";
+                i += 5;
+                continue;
+              }
+              if (token.substring(i, i + 10) === "[END_JSON]") {
+                currentSection = "idle";
+                i += 9;
+                continue;
+              }
+
+              if (currentSection === "text") {
+                accumulatedText += char;
+                sentenceAccumulator += char;
+                setAiResponse(accumulatedText.toUpperCase());
+
+                if ([".", "!", "?", "\n"].includes(char)) {
+                  const sentence = sentenceAccumulator.trim();
+                  if (sentence.length > 2 && !spokenSentences.has(sentence)) {
+                    spokenSentences.add(sentence);
+                    enqueueSpeech(sentence);
+                    sentenceAccumulator = "";
+                  }
+                }
+              } else if (currentSection === "json") {
+                accumulatedJson += char;
+              }
+            }
+          } catch (e) {
+            console.warn("Parse error in stream line:", e);
+          }
+        }
       }
 
-      setAiResponse(responseText.toUpperCase());
+      if (sentenceAccumulator.trim()) {
+        const finalSentence = sentenceAccumulator.trim();
+        if (!spokenSentences.has(finalSentence)) {
+          spokenSentences.add(finalSentence);
+          enqueueSpeech(finalSentence);
+        }
+      }
 
-      if (typeof window !== "undefined" && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(responseText);
-        utterance.lang = "pt-BR";
-        utterance.rate = 0.95;
-        const voices = window.speechSynthesis.getVoices();
-        const ptVoice = voices.find((v) => v.lang.startsWith("pt"));
-        if (ptVoice) utterance.voice = ptVoice;
-        utterance.onend = () => {};
-        window.speechSynthesis.speak(utterance);
+      if (accumulatedJson.trim()) {
+        try {
+          const data = JSON.parse(accumulatedJson.trim());
+          const normalizedDescription =
+            data.description &&
+            data.description.trim().toLowerCase() !== data.title.trim().toLowerCase() &&
+            data.description.trim().toLowerCase() !== msg.trim().toLowerCase()
+              ? data.description
+              : "";
+
+          const record: CortexRecord = {
+            id: crypto.randomUUID?.() ?? Date.now().toString(),
+            type: data.type,
+            title: data.title,
+            description: normalizedDescription,
+            rawInput: msg,
+            priority: data.priority,
+            project: data.project,
+            amount: data.amount,
+            category: data.category,
+            dueDate: data.dueDate,
+            nextAction: data.nextAction,
+            status: "pending",
+            createdAt: new Date().toISOString(),
+          };
+
+          await saveRecord(record);
+        } catch (err) {
+          console.error("Failed to parse or save record from stream:", err);
+        }
       }
     } catch (err) {
       setAiResponse("FALHA AO PROCESSAR COMANDO. TENTE NOVAMENTE.");
