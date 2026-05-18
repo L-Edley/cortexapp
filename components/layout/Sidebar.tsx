@@ -1,6 +1,6 @@
 'use client';
 
-import { LayoutDashboard, Zap, Database, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'motion/react';
 
@@ -19,7 +19,7 @@ interface SidebarProps {
 export default function Sidebar({ items, activeTab, onTabChange }: SidebarProps) {
   return (
     <nav className="hidden md:flex w-20 flex-col items-center py-8 border-r border-zinc-900 bg-[#080808] z-30 shrink-0">
-      <div className="mb-12 relative group cursor-pointer">
+      <div className="mb-12 relative group cursor-pointer" onClick={() => onTabChange('dashboard')}>
         <div className="w-12 h-12 bg-orange-500 flex items-center justify-center font-black text-2xl text-black transform group-hover:rotate-90 transition-transform duration-500">
           C
         </div>
@@ -49,15 +49,6 @@ export default function Sidebar({ items, activeTab, onTabChange }: SidebarProps)
             </div>
           </button>
         ))}
-      </div>
-
-      <div className="mt-auto flex flex-col gap-6 text-zinc-700">
-        <button className="p-4 hover:text-zinc-400 transition-colors">
-          <Settings size={20} />
-        </button>
-        <button className="p-4 hover:text-rose-500 transition-colors">
-          <LogOut size={20} />
-        </button>
       </div>
     </nav>
   );
