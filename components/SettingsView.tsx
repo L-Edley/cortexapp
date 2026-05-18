@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Settings2,
   Wifi,
@@ -13,6 +13,11 @@ import {
   Download,
   ClipboardCopy,
   FileText,
+  Database,
+  RefreshCw,
+  ExternalLink,
+  AlertTriangle,
+  CheckCircle2,
 } from "lucide-react";
 import { getRecords, clearRecords } from "@/lib/storage";
 import {
@@ -20,6 +25,9 @@ import {
   exportDashboardMarkdown,
   exportDailyNoteMarkdown,
   copyVaultReadmeToClipboard,
+  checkObsidianConnection,
+  getObsidianConfig,
+  syncLocalRecordsToObsidian,
 } from "@/lib/obsidian";
 
 export default function SettingsView() {
@@ -28,9 +36,18 @@ export default function SettingsView() {
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [mounted, setMounted] = useState(false);
 
+  const [obsidianEnabled, setObsidianEnabled] = useState(false);
+  const [obsidianOnline, setObsidianOnline] = useState<boolean | null>(null);
+  const [obsidianChecking, setObsidianChecking] = useState(false);
+  const [obsidianUrl, setObsidianUrl] = useState("");
+
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+
   useEffect(() => {
     setMounted(true);
-    setRecordCount(getRecords().length);
+    const records = getRecords();
+    setRecordCount(records.length);
     checkApi();
   }, []);
 
@@ -83,6 +100,40 @@ export default function SettingsView() {
     setCopyFeedback(true);
     setTimeout(() => setCopyFeedback(false), 2000);
   };
+
+  const handleTestObsidian = useCallback(async () => {
+    setObsidianChecking(true);
+    const config = getObsidianConfig();
+    setObsidianEnabled(config.enabled);
+    setObsidianUrl(config.baseUrl);
+    const online = await checkObsidianConnection();
+    setObsidianOnline(online);
+    setObsidianChecking(false);
+  }, []);
+
+  const handleSyncToObsidian = useCallback(async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    const result = await syncLocalRecordsToObsidian();
+    if (result.errors.length > 0 && result.errors[0].path === "config") {
+      setSyncResult("Obsidian REST não está habilitado nas variáveis de ambiente.");
+    } else if (result.errors.length > 0 && result.errors[0].path === "connection") {
+      setSyncResult("Obsidian REST está offline. Verifique se o plugin está ativo.");
+    } else {
+      setSyncResult(
+        `Sincronizado: ${result.successCount} de ${result.totalAttempted} registro(s).` +
+          (result.failCount > 0 ? ` ${result.failCount} falha(s).` : "")
+      );
+    }
+    setSyncing(false);
+    setObsidianOnline(result.failCount === 0 && result.totalAttempted > 0);
+  }, []);
+
+  useEffect(() => {
+    if (mounted) {
+      handleTestObsidian();
+    }
+  }, [mounted, handleTestObsidian]);
 
   if (!mounted) return null;
 
@@ -178,6 +229,133 @@ export default function SettingsView() {
           <Trash2 className="w-4 h-4" />
           Limpar dados locais
         </button>
+      </div>
+
+      <div className="mt-8">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+            <Database className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-100">Obsidian Vault Sync</h2>
+            <p className="text-sm text-zinc-500">
+              Sincronização opcional com vault Obsidian via Local REST API
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  obsidianChecking ? "bg-zinc-500/20" :
+                  obsidianOnline === true ? "bg-green-500/20" :
+                  obsidianOnline === false ? "bg-red-500/20" :
+                  "bg-zinc-500/20"
+                }`}>
+                  {obsidianChecking ? (
+                    <RefreshCw className="w-4 h-4 text-zinc-400 animate-spin" />
+                  ) : obsidianOnline === true ? (
+                    <Wifi className="w-4 h-4 text-green-400" />
+                  ) : (
+                    <WifiOff className="w-4 h-4 text-red-400" />
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm text-zinc-200">Status Obsidian REST</p>
+                  <p className="text-xs text-zinc-500">
+                    {obsidianChecking
+                      ? "Verificando..."
+                      : obsidianOnline === true
+                      ? `Conectado em ${obsidianUrl}`
+                      : !obsidianEnabled
+                      ? "Desabilitado (configure NEXT_PUBLIC_OBSIDIAN_REST_ENABLED=true)"
+                      : "Offline — plugin não está respondendo"}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleTestObsidian}
+                className="text-xs text-orange-500 hover:text-orange-400 transition-colors"
+              >
+                Testar
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                <HardDrive className="w-4 h-4 text-cyan-400" />
+              </div>
+              <div>
+                <p className="text-sm text-zinc-200">Storage atual</p>
+                <p className="text-xs text-zinc-500">
+                  {obsidianOnline === true
+                    ? "localStorage + Obsidian vault"
+                    : "localStorage"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {syncResult && (
+            <div className={`rounded-xl p-3 text-sm flex items-center gap-2 ${
+              syncResult.includes("falha")
+                ? "bg-yellow-500/10 border border-yellow-500/20 text-yellow-400"
+                : "bg-green-500/10 border border-green-500/20 text-green-400"
+            }`}>
+              {syncResult.includes("falha") ? (
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+              )}
+              <span>{syncResult}</span>
+            </div>
+          )}
+
+          <button
+            onClick={handleSyncToObsidian}
+            disabled={syncing || obsidianOnline !== true}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 transition-all text-left disabled:opacity-40"
+          >
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+              {syncing ? (
+                <RefreshCw className="w-4 h-4 text-emerald-400 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 text-emerald-400" />
+              )}
+            </div>
+            <div>
+              <p className="text-sm text-zinc-200">
+                {syncing
+                  ? "Sincronizando..."
+                  : "Sincronizar registros locais para o vault"}
+              </p>
+              <p className="text-xs text-zinc-500">
+                Converte todos os registros do localStorage em arquivos .md no Obsidian
+              </p>
+            </div>
+          </button>
+
+          <a
+            href="https://github.com/coddingtonbear/obsidian-local-rest-api"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 transition-all"
+          >
+            <div className="w-8 h-8 rounded-lg bg-zinc-500/20 flex items-center justify-center flex-shrink-0">
+              <ExternalLink className="w-4 h-4 text-zinc-400" />
+            </div>
+            <div>
+              <p className="text-sm text-zinc-200">Instruções de configuração</p>
+              <p className="text-xs text-zinc-500">
+                Instalar e configurar o plugin Obsidian Local REST API
+              </p>
+            </div>
+          </a>
+        </div>
       </div>
 
       <div className="mt-8">

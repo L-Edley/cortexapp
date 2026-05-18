@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { Lightbulb, Archive, ArrowUpRight, Trash2 } from "lucide-react";
 import type { CortexRecord } from "@/lib/types";
-import { getRecordsByType, updateRecord, saveRecord, deleteRecord } from "@/lib/storage";
+import { getRecordsByType } from "@/lib/storage";
+import { saveRecord, updateRecord, deleteRecord } from "@/lib/obsidian";
 
 export default function IdeasView() {
   const [ideas, setIdeas] = useState<CortexRecord[]>([]);
@@ -18,12 +19,12 @@ export default function IdeasView() {
     setIdeas(getRecordsByType("idea"));
   };
 
-  const handleArchive = (id: string) => {
-    updateRecord(id, { status: "archived" });
+  const handleArchive = async (id: string) => {
+    await updateRecord(id, { status: "archived" });
     loadIdeas();
   };
 
-  const handlePromote = (idea: CortexRecord) => {
+  const handlePromote = async (idea: CortexRecord) => {
     const task: CortexRecord = {
       ...idea,
       id: crypto.randomUUID?.() ?? Date.now().toString(),
@@ -31,13 +32,13 @@ export default function IdeasView() {
       status: "pending",
       createdAt: new Date().toISOString(),
     };
-    saveRecord(task);
-    updateRecord(idea.id, { status: "promoted" });
+    await saveRecord(task);
+    await updateRecord(idea.id, { status: "promoted" });
     loadIdeas();
   };
 
-  const handleDelete = (id: string) => {
-    deleteRecord(id);
+  const handleDelete = async (id: string) => {
+    await deleteRecord(id);
     loadIdeas();
   };
 

@@ -7,7 +7,7 @@ Motor de organização pessoal, financeira e estratégica — com IA local.
 - **Framework:** Next.js App Router (React 19)
 - **IA:** Aion — classificador inteligente integrado
 - **Estilo:** Tailwind CSS v4 + Lucide icons
-- **Persistência:** localStorage (sem banco externo)
+- **Persistência:** localStorage + Obsidian vault (opcional via REST API)
 - **PWA:** Suporte offline com service worker
 
 ## Como rodar
@@ -99,9 +99,46 @@ vault/
 - **Templater** — Templates avançados
 - **Obsidian Git** — Versionamento do vault (próxima etapa)
 
+### Obsidian Local REST API
+
+O Cortex pode escrever registros diretamente no vault Obsidian via plugin `obsidian-local-rest-api`.
+
+#### Configuração
+
+1. No Obsidian, instale o plugin **Local REST API** (Community Plugins)
+2. Ative o plugin em **Settings → Community Plugins → Local REST API**
+3. Copie a **API Key** gerada pelo plugin
+4. No Cortex, crie `.env.local`:
+
+```env
+NEXT_PUBLIC_OBSIDIAN_REST_ENABLED=true
+NEXT_PUBLIC_OBSIDIAN_REST_URL=http://127.0.0.1:27123
+NEXT_PUBLIC_OBSIDIAN_API_KEY=sua-chave-aqui
+```
+
+5. Reinicie o servidor do Cortex (`npm run dev`)
+6. Vá em **Configurações → Obsidian Vault Sync** e clique **Testar**
+
+#### Como funciona
+
+- Se o Obsidian REST estiver configurado e online:
+  - cada registro salvo vai para o **localStorage** + **vault** simultaneamente
+- Se estiver offline ou desabilitado:
+  - tudo continua funcionando apenas com localStorage
+- Em **Configurações**, é possível sincronizar todos os registros locais existentes para o vault manualmente
+
+#### Aviso
+
+> A API key do Obsidian REST fica exposta no frontend (`NEXT_PUBLIC_`). Isso é aceitável apenas porque o plugin roda exclusivamente em `127.0.0.1` (localhost). **Não use essa configuração em ambiente público ou hospedado.**
+>
+> Em deploy na Vercel ou similar, a conexão com `127.0.0.1` não funcionará devido a restrições de rede/CORS. Para uso com Obsidian, rode o Cortex localmente com `npm run dev`.
+>
+> No futuro, considerar Tauri ou Electron para acesso local mais robusto ao vault.
+
 ### Próximo passo
 
 Integração direta entre Cortex e o vault Obsidian — via sincronização com pastas locais ou Git.
+Sincronização bidirecional (Cortex → Obsidian e Obsidian → Cortex).
 
 ## Build
 

@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Send, Loader2, AlertCircle, Sparkles, Zap } from "lucide-react";
+import { Send, Loader2, AlertCircle, Sparkles, Zap, CheckCircle2, CloudOff } from "lucide-react";
 import type { CortexApiResponse, CortexRecord } from "@/lib/types";
-import { saveRecord } from "@/lib/storage";
+import { saveRecord } from "@/lib/obsidian";
 
 type Interaction = {
   id: string;
@@ -18,6 +18,7 @@ export default function CommandCenter() {
   const [error, setError] = useState<string | null>(null);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [mounted, setMounted] = useState(false);
+  const [syncIndicator, setSyncIndicator] = useState<{ id: string; ok: boolean } | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -88,8 +89,9 @@ export default function CommandCenter() {
         createdAt: interaction.timestamp,
       };
 
-      saveRecord(record);
+      const sync = await saveRecord(record);
       localStorage.setItem("cortex_has_data", "true");
+      setSyncIndicator({ id: interaction.id, ok: sync.savedObsidian });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao processar mensagem");
     } finally {
@@ -189,12 +191,21 @@ export default function CommandCenter() {
                   <p className="text-zinc-400 text-xs mb-1">Você</p>
                   <p className="text-zinc-200 text-sm">{interaction.message}</p>
                 </div>
-                <span className="text-[10px] text-zinc-600 flex-shrink-0 ml-3">
-                  {new Date(interaction.timestamp).toLocaleTimeString("pt-BR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
+                <div className="flex items-center gap-1.5 flex-shrink-0 ml-3">
+                  {syncIndicator?.id === interaction.id && (
+                    syncIndicator.ok ? (
+                      <CheckCircle2 className="w-3 h-3 text-emerald-500" title="Sincronizado com Obsidian" />
+                    ) : (
+                      <CloudOff className="w-3 h-3 text-zinc-600" title="Salvo apenas localmente" />
+                    )
+                  )}
+                  <span className="text-[10px] text-zinc-600">
+                    {new Date(interaction.timestamp).toLocaleTimeString("pt-BR", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
               </div>
 
               <div className="bg-zinc-950 rounded-lg p-3 border border-zinc-800/50">

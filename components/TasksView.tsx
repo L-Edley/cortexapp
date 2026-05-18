@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { Check, Trash2, ListTodo, AlertTriangle, Target } from "lucide-react";
 import type { CortexRecord } from "@/lib/types";
-import { getRecordsByType, updateRecord, deleteRecord } from "@/lib/storage";
+import { getRecordsByType } from "@/lib/storage";
+import { updateRecord, deleteRecord } from "@/lib/obsidian";
 
 export default function TasksView() {
   const [tasks, setTasks] = useState<CortexRecord[]>([]);
@@ -18,14 +19,14 @@ export default function TasksView() {
     setTasks(getRecordsByType("task"));
   };
 
-  const handleToggle = (id: string, currentStatus: string) => {
+  const handleToggle = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === "done" ? "pending" : "done";
-    updateRecord(id, { status: newStatus as CortexRecord["status"] });
+    await updateRecord(id, { status: newStatus as CortexRecord["status"] });
     loadTasks();
   };
 
-  const handleDelete = (id: string) => {
-    deleteRecord(id);
+  const handleDelete = async (id: string) => {
+    await deleteRecord(id);
     loadTasks();
   };
 
