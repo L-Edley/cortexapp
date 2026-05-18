@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Check, Trash2, ListTodo, AlertTriangle, Target } from "lucide-react";
 import type { CortexRecord } from "@/lib/types";
 import { getRecordsByType } from "@/lib/storage";
-import { updateRecord, deleteRecord } from "@/lib/storageProvider";
+import { updateRecord, deleteRecord, subscribeRecordsByType } from "@/lib/storageProvider";
 
 export default function TasksView() {
   const [tasks, setTasks] = useState<CortexRecord[]>([]);
@@ -13,6 +13,10 @@ export default function TasksView() {
   useEffect(() => {
     setMounted(true);
     loadTasks();
+    const unsub = subscribeRecordsByType("task", (records) => {
+      setTasks(records);
+    });
+    return () => unsub();
   }, []);
 
   const loadTasks = () => {

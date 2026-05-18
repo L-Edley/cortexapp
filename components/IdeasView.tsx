@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Lightbulb, Archive, ArrowUpRight, Trash2 } from "lucide-react";
 import type { CortexRecord } from "@/lib/types";
 import { getRecordsByType } from "@/lib/storage";
-import { saveRecord, updateRecord, deleteRecord } from "@/lib/storageProvider";
+import { saveRecord, updateRecord, deleteRecord, subscribeRecordsByType } from "@/lib/storageProvider";
 
 export default function IdeasView() {
   const [ideas, setIdeas] = useState<CortexRecord[]>([]);
@@ -13,6 +13,10 @@ export default function IdeasView() {
   useEffect(() => {
     setMounted(true);
     loadIdeas();
+    const unsub = subscribeRecordsByType("idea", (records) => {
+      setIdeas(records);
+    });
+    return () => unsub();
   }, []);
 
   const loadIdeas = () => {

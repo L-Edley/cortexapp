@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Wallet, Trash2, TrendingDown, Calendar } from "lucide-react";
 import type { CortexRecord } from "@/lib/types";
 import { getRecordsByType, getTotalSpent, getSpentToday } from "@/lib/storage";
-import { deleteRecord } from "@/lib/storageProvider";
+import { deleteRecord, subscribeRecordsByType } from "@/lib/storageProvider";
 
 export default function FinancesView() {
   const [expenses, setExpenses] = useState<CortexRecord[]>([]);
@@ -15,6 +15,18 @@ export default function FinancesView() {
   useEffect(() => {
     setMounted(true);
     loadData();
+    const unsub = subscribeRecordsByType("expense", (records) => {
+      setExpenses(records);
+      setSpentToday(
+        records
+          .filter((r) => r.createdAt.startsWith(new Date().toISOString().split("T")[0]))
+          .reduce((sum, r) => sum + (r.amount ?? 0), 0)
+      );
+      setTotalSpent(
+        records.reduce((sum, r) => sum + (r.amount ?? 0), 0)
+      );
+    });
+    return () => unsub();
   }, []);
 
   const loadData = () => {

@@ -8,6 +8,8 @@ export type AuthState = "authenticated" | "unauthenticated" | "unknown";
 
 function getMode(): StorageMode {
   if (typeof window === "undefined") return "local";
+  const env = process.env.NEXT_PUBLIC_STORAGE_MODE;
+  if (env === "firebase" || env === "hybrid") return env;
   const raw = localStorage.getItem("cortex_storage_mode");
   if (raw === "firebase" || raw === "hybrid") return raw;
   return "local";
@@ -117,6 +119,10 @@ export function getLatestEntries(limit = 5): CortexRecord[] {
   return local.getLatestEntries(limit);
 }
 
+export function getLastFocusRequest(): CortexRecord | undefined {
+  return local.getLastFocusRequest();
+}
+
 export function clearRecords(): void {
   local.clearRecords();
   const mode = getMode();
@@ -174,5 +180,40 @@ export function getStorageLabel(): string {
       return "Firebase + localStorage + Obsidian";
     default:
       return "localStorage";
+  }
+}
+
+export function getStorageLabelForIndicator(): string {
+  const mode = getMode();
+  switch (mode) {
+    case "firebase":
+      return "Sincronizado com Firebase";
+    case "hybrid":
+      return "Sincronizado com Firebase + Obsidian";
+    default:
+      return "Salvo no localStorage";
+  }
+}
+
+export function subscribeRecords(
+  callback: (records: CortexRecord[]) => void
+): () => void {
+  if (!firebaseAvailable()) return () => {};
+  try {
+    return firebase.subscribeRecords(callback);
+  } catch {
+    return () => {};
+  }
+}
+
+export function subscribeRecordsByType(
+  type: CortexRecordType,
+  callback: (records: CortexRecord[]) => void
+): () => void {
+  if (!firebaseAvailable()) return () => {};
+  try {
+    return firebase.subscribeRecordsByType(type, callback);
+  } catch {
+    return () => {};
   }
 }

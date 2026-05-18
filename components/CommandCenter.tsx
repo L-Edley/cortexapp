@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Send, Loader2, AlertCircle, Sparkles, Zap, CheckCircle2, CloudOff } from "lucide-react";
 import type { CortexApiResponse, CortexRecord } from "@/lib/types";
-import { saveRecord } from "@/lib/storageProvider";
+import { saveRecord, getStorageLabelForIndicator } from "@/lib/storageProvider";
 
 type Interaction = {
   id: string;
@@ -194,7 +194,7 @@ export default function CommandCenter() {
                 <div className="flex items-center gap-1.5 flex-shrink-0 ml-3">
                   {syncIndicator?.id === interaction.id && (
                     syncIndicator.ok ? (
-                      <CheckCircle2 className="w-3 h-3 text-emerald-500" title="Sincronizado com Obsidian" />
+                      <CheckCircle2 className="w-3 h-3 text-emerald-500" title={getStorageLabelForIndicator()} />
                     ) : (
                       <CloudOff className="w-3 h-3 text-zinc-600" title="Salvo apenas localmente" />
                     )

@@ -17,7 +17,8 @@ import {
   getTopPendingTasks,
   getLastFocusRequest,
   getLatestEntries,
-} from "@/lib/storage";
+  subscribeRecords,
+} from "@/lib/storageProvider";
 import type { CortexRecord } from "@/lib/types";
 
 export default function DashboardView({
@@ -39,6 +40,26 @@ export default function DashboardView({
   useEffect(() => {
     setMounted(true);
     loadStats();
+    const unsub = subscribeRecords((records) => {
+      const priorityOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+      setStats({
+        total: records.length,
+        pendingTasks: records.filter((r) => r.type === "task" && r.status === "pending").length,
+        totalIdeas: records.filter((r) => r.type === "idea" && r.status !== "archived").length,
+        spentToday: records
+          .filter((r) => r.type === "expense" && r.createdAt.startsWith(new Date().toISOString().split("T")[0]))
+          .reduce((sum, r) => sum + (r.amount ?? 0), 0),
+        topTasks: records
+          .filter((r) => r.type === "task" && r.status === "pending")
+          .sort((a, b) => (priorityOrder[a.priority] ?? 99) - (priorityOrder[b.priority] ?? 99))
+          .slice(0, 3),
+        lastFocus: records
+          .filter((r) => r.type === "focus_request")
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0] ?? null,
+        latest: records.slice(0, 5),
+      });
+    });
+    return () => unsub();
   }, []);
 
   const loadStats = () => {
