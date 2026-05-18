@@ -1,0 +1,59 @@
+{
+  "name": "Cortex",
+  "short_name": "Cortex",
+  "description": "Motor de organização pessoal, financeira e estratégica",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050505",
+  "theme_color": "#f97316",
+  "orientation": "portrait-primary",
+  "categories": ["productivity", "finance", "personal-development"],
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192-maskable.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-512-maskable.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Visão geral do Cortex",
+      "url": "/dashboard"
+    },
+    {
+      "name": "Captura Inteligente",
+      "short_name": "Captura",
+      "description": "Registrar entradas no Cortex",
+      "url": "/terminal"
+    },
+    {
+      "name": "Registro Mestre",
+      "short_name": "Registros",
+      "description": "Histórico de dados",
+      "url": "/databank"
+    }
+  ]
+}

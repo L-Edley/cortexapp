@@ -1,0 +1,8 @@
+{
+  "name": "Cortex Operacional",
+  "short_name": "Cortex",
+  "description": "Motor de organização pessoal, financeira e estratégica baseado em IA. Transforma dados não estruturados em JSON acionável.",
+  "display": "standalone",
+  "background_color": "#050505",
+  "theme_color": "#f97316"
+}
