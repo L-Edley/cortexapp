@@ -194,6 +194,7 @@ body {
   justify-content: center;
   cursor: pointer;
   transition: all 0.3s ease;
+  position: relative;
 }
 
 .voice-btn.idle {
@@ -219,6 +220,96 @@ body {
 }
 @keyframes spin-hex {
   100% { transform: rotate(360deg); }
+}
+
+.voice-btn:hover:not(.voice-unsupported) {
+  border-color: var(--cyan-bright);
+  color: var(--cyan-bright);
+}
+
+.voice-btn.voice-active {
+  color: var(--cyan-bright);
+  border: 1px solid var(--cyan-bright);
+  box-shadow: 0 0 20px var(--cyan-glow), 0 0 60px var(--cyan-glow);
+  animation: pulse-listen 1.5s ease-in-out infinite;
+}
+
+.voice-btn.voice-unsupported {
+  color: var(--text-muted);
+  border: 1px solid var(--text-muted);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.voice-pulse {
+  animation: voice-icon-pulse 1s ease-in-out infinite;
+}
+
+@keyframes voice-icon-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.7; }
+}
+
+.voice-ring {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--cyan-bright);
+  animation: voice-ring-expand 1.5s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes voice-ring-expand {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+.voice-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 24px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--cyan-bright);
+  letter-spacing: 1px;
+}
+
+.voice-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green-ok);
+  box-shadow: 0 0 8px var(--green-ok);
+  animation: status-pulse 1s ease-in-out infinite;
+}
+
+.voice-cancel {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.voice-cancel:hover {
+  color: var(--red-alert);
+}
+
+.voice-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 24px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--yellow-warn);
+  letter-spacing: 0.5px;
 }
 
 .voice-btn.speaking {

@@ -1,45 +1,40 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { MicIcon } from "lucide-react";
+import { useState, useEffect } from "react";
+import { MicIcon, MicOff, Ear, AlertTriangle } from "lucide-react";
 import type { CortexApiResponse, CortexRecord } from "@/lib/types";
 import { saveRecord } from "@/lib/storageProvider";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useVoice } from "@/hooks/useVoice";
-
-const VoiceWaveform = ({ active }: { active: boolean }) => {
-  if (!active) return null;
-  return (
-    <div className="waveform">
-      {Array.from({ length: 32 }).map((_, i) => (
-        <div
-          key={i}
-          className="wave-bar"
-          style={{
-            animationDelay: `${i * 0.05}s`,
-            animationDuration: `${0.5 + Math.random() * 0.5}s`,
-          }}
-        />
-      ))}
-    </div>
-  );
-};
 
 export default function CommandCenter() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState("SISTEMA ONLINE. AGUARDANDO COMANDOS.");
 
-  const { state: voiceState, setState: setVoiceState, startListening, speak } = useVoice((transcript) => {
-    setMessage(transcript);
-    handleSend(transcript);
-  });
+  const {
+    isListening,
+    transcript,
+    error: speechError,
+    isSupported,
+    startListening,
+    stopListening,
+    resetTranscript,
+  } = useSpeechRecognition();
+
+  const { speak } = useVoice(() => {});
+
+  useEffect(() => {
+    if (transcript) {
+      setMessage(transcript);
+    }
+  }, [transcript]);
 
   const handleSend = async (text?: string) => {
     const msg = (text ?? message).trim();
     if (!msg) return;
 
     setLoading(true);
-    setVoiceState('processing');
     setAiResponse("PROCESSANDO...");
 
     try {
@@ -79,13 +74,13 @@ export default function CommandCenter() {
           data.type === "task"
             ? "pending"
             : data.type === "idea"
-              ? "archived"
+              ? "pending"
               : "pending",
         createdAt: new Date().toISOString(),
       };
 
       await saveRecord(record);
-      
+
       let responseText = "";
       if (data.type === "expense") {
         responseText = `Registrado. ${data.category || 'Despesa'}: R$ ${data.amount}.`;
@@ -94,13 +89,12 @@ export default function CommandCenter() {
       } else {
         responseText = `Entendido. '${data.title}' registrado no banco de dados.`;
       }
-      
+
       setAiResponse(responseText.toUpperCase());
       speak(responseText);
-      
+
     } catch (err) {
       setAiResponse("FALHA AO PROCESSAR COMANDO. TENTE NOVAMENTE.");
-      setVoiceState('idle');
     } finally {
       setLoading(false);
     }
@@ -113,9 +107,17 @@ export default function CommandCenter() {
     }
   };
 
+  const handleMicClick = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      resetTranscript();
+      startListening();
+    }
+  };
+
   return (
     <div className="command-center">
-      {/* Barra de título estilo terminal */}
       <div className="cmd-header">
         <span className="cmd-dot red"/>
         <span className="cmd-dot yellow"/>
@@ -124,35 +126,59 @@ export default function CommandCenter() {
         <span className="cmd-status">● ONLINE</span>
       </div>
 
-      {/* Área de resposta da IA — streaming */}
       <div className="cmd-response">
         <span className="cmd-prefix">AION › </span>
         <span key={aiResponse} className="cmd-text typewriter">{aiResponse}</span>
         <span className="cmd-cursor">█</span>
       </div>
 
-      {/* Input do usuário */}
       <div className="cmd-input-row">
         <span className="cmd-prompt">USER › </span>
         <input
           className="cmd-input"
-          placeholder="fale ou digite um comando..."
+          placeholder={isListening ? "Aion está ouvindo..." : "fale ou digite um comando..."}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={loading || voiceState === 'listening'}
+          disabled={loading || isListening}
         />
-        <button 
-          className={`voice-btn ${voiceState}`} 
-          onClick={startListening}
-          disabled={loading}
-        >
-          <MicIcon className="w-5 h-5" />
-        </button>
+        {!isSupported ? (
+          <div className="voice-btn voice-unsupported" title="Voz não suportada neste navegador">
+            <MicOff className="w-5 h-5" />
+          </div>
+        ) : (
+          <button
+            className={`voice-btn ${isListening ? "voice-active" : ""}`}
+            onClick={handleMicClick}
+            disabled={loading}
+            title={isListening ? "Parar escuta" : "Iniciar escuta de voz"}
+          >
+            {isListening ? (
+              <>
+                <Ear className="w-5 h-5 voice-pulse" />
+                <span className="voice-ring" />
+              </>
+            ) : (
+              <MicIcon className="w-5 h-5" />
+            )}
+          </button>
+        )}
       </div>
 
-      {/* Waveform animado durante escuta */}
-      <VoiceWaveform active={voiceState === 'listening'} />
+      {isListening && (
+        <div className="voice-status">
+          <span className="voice-status-dot" />
+          <span>Aion está ouvindo...</span>
+          <button className="voice-cancel" onClick={stopListening}>cancelar</button>
+        </div>
+      )}
+
+      {speechError && !isListening && (
+        <div className="voice-error">
+          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+          <span>{speechError}</span>
+        </div>
+      )}
     </div>
   );
 }
