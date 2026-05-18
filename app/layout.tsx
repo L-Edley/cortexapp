@@ -59,22 +59,10 @@ export default function RootLayout({
         <meta name="theme-color" content="#00D4FF" />
       </head>
       <body suppressHydrationWarning className="cortex-app">
-        <svg style={{ display: 'none' }}>
-          <filter id="noise">
-            <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/>
-            <feColorMatrix type="saturate" values="0"/>
-          </filter>
-        </svg>
-
-        <div className="background-grid" />
-        <div className="scan-lines" />
-        <div className="noise-overlay" style={{
-          filter: 'url(#noise)',
-          opacity: 'var(--noise-opacity)',
-          position: 'fixed', inset: 0,
-          pointerEvents: 'none', zIndex: 9998
-        }} />
-
+        
+        {/* Você pode descomentar a linha abaixo se quiser manter as linhas de grade de fundo */}
+        {/* <div className="background-grid" /> */}
+        
         <ServiceWorkerRegister />
         <TopBar />
         {children}

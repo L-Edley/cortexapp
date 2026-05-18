@@ -126,7 +126,6 @@ export function subscribeRecords(
 ): Unsubscribe {
   const user = getCurrentUser();
   if (!user) {
-    callback([]);
     return () => {};
   }
   const recordsCol = collection(
@@ -150,7 +149,6 @@ export function subscribeRecordsByType(
 ): Unsubscribe {
   const user = getCurrentUser();
   if (!user) {
-    callback([]);
     return () => {};
   }
   const recordsCol = collection(

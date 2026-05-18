@@ -1,4 +1,4 @@
-import type { CortexRecord } from "@/lib/types";
+  import type { CortexRecord } from "@/lib/types";
 import { TEMPLATES } from "./templates";
 
 export function recordToMarkdown(record: CortexRecord): string {

@@ -82,28 +82,28 @@ export default function DashboardView({
       value: stats.pendingTasks,
       icon: ListTodo,
       color: "bg-blue-500/20 text-blue-400",
-      tab: "tarefas",
+      tab: "tasks",
     },
     {
       label: "Ideias ativas",
       value: stats.totalIdeas,
       icon: Lightbulb,
       color: "bg-purple-500/20 text-purple-400",
-      tab: "ideias",
+      tab: "ideas",
     },
     {
       label: "Gasto hoje",
       value: `R$ ${stats.spentToday.toFixed(2)}`,
       icon: Wallet,
       color: "bg-green-500/20 text-green-400",
-      tab: "financas",
+      tab: "finances",
     },
     {
       label: "Total de registros",
       value: stats.total,
       icon: TrendingUp,
       color: "bg-orange-500/20 text-orange-400",
-      tab: "terminal",
+      tab: "aion",
     },
   ];
 
@@ -183,7 +183,7 @@ export default function DashboardView({
             <p className="text-zinc-600 text-xs">Nenhum pedido de foco ainda.</p>
           )}
           <button
-            onClick={() => onNavigate?.("terminal")}
+            onClick={() => onNavigate?.("aion")}
             className="mt-3 text-xs text-orange-500 hover:text-orange-400 transition-colors"
           >
             Pedir foco ao Aion →

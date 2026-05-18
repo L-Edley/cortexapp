@@ -2,6 +2,7 @@ import type { CortexRecord, CortexRecordType } from "./types";
 import * as local from "./storage";
 import * as firebase from "./firebase/records";
 import * as obsidian from "./obsidian/vaultStorage";
+import { getCurrentUser } from "./firebase/auth";
 
 export type StorageMode = "local" | "firebase" | "hybrid";
 export type AuthState = "authenticated" | "unauthenticated" | "unknown";
@@ -195,25 +196,91 @@ export function getStorageLabelForIndicator(): string {
   }
 }
 
+// ==========================================
+// AS DUAS FUNÇÕES ABAIXO FORAM CORRIGIDAS:
+// ==========================================
+
 export function subscribeRecords(
   callback: (records: CortexRecord[]) => void
 ): () => void {
-  if (!firebaseAvailable()) return () => {};
-  try {
-    return firebase.subscribeRecords(callback);
-  } catch {
-    return () => {};
+  const mode = getMode();
+
+  // 1. CARREGAMENTO IMEDIATO: Garante que a UI renderize na hora com o que tem no local.
+  const currentLocalRecords = local.getRecords();
+  callback(currentLocalRecords);
+
+  // Se o modo for estritamente local, encerramos aqui. A UI já tem os dados.
+  if (mode === "local") return () => {};
+
+  // 2. FIREBASE / HYBRID: Tenta sincronizar com a nuvem
+  if (firebaseAvailable()) {
+    try {
+      const user = getCurrentUser();
+      
+      // Se não tem usuário, já devolvemos os dados locais acima, então não faz mais nada.
+      if (!user) return () => {};
+
+      return firebase.subscribeRecords((firebaseRecords) => {
+        if (firebaseRecords.length > 0 || currentLocalRecords.length === 0) {
+          
+          if (mode === "hybrid") {
+            firebaseRecords.forEach(record => {
+              const existing = local.getRecordsById(record.id);
+              if (!existing) {
+                local.saveRecord(record);
+              } else if (new Date(record.createdAt) > new Date(existing.createdAt)) {
+                local.updateRecord(record.id, record);
+              }
+            });
+          }
+
+          callback(firebaseRecords);
+        }
+      });
+    } catch {
+      return () => {};
+    }
   }
+  return () => {};
 }
 
 export function subscribeRecordsByType(
   type: CortexRecordType,
   callback: (records: CortexRecord[]) => void
 ): () => void {
-  if (!firebaseAvailable()) return () => {};
-  try {
-    return firebase.subscribeRecordsByType(type, callback);
-  } catch {
-    return () => {};
+  const mode = getMode();
+
+  // Carregamento imediato do cache local
+  const currentLocalRecords = local.getRecordsByType(type);
+  callback(currentLocalRecords);
+
+  if (mode === "local") return () => {};
+
+  if (firebaseAvailable()) {
+    try {
+      const user = getCurrentUser();
+      if (!user) return () => {};
+
+      return firebase.subscribeRecordsByType(type, (firebaseRecords) => {
+        if (firebaseRecords.length > 0 || currentLocalRecords.length === 0) {
+          
+          if (mode === "hybrid") {
+            firebaseRecords.forEach(record => {
+              const existing = local.getRecordsById(record.id);
+              if (!existing) {
+                local.saveRecord(record);
+              } else if (new Date(record.createdAt) > new Date(existing.createdAt)) {
+                local.updateRecord(record.id, record);
+              }
+            });
+          }
+
+          callback(firebaseRecords);
+        }
+      });
+    } catch {
+      return () => {};
+    }
   }
+  return () => {};
 }
