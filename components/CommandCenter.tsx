@@ -240,11 +240,6 @@ export default function CommandCenter() {
     }
   };
 
-  const handleVoiceCommand = async (transcript: string) => {
-    setMessage(transcript);
-    await handleSend(transcript);
-  };
-
   return (
     <div className="command-center">
       <div className="cmd-header">
@@ -285,7 +280,7 @@ export default function CommandCenter() {
         </button>
       </div>
 
-      <VoiceCenter onCommandComplete={handleVoiceCommand} />
+      <VoiceCenter />
     </div>
   );
 }

@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@elevenlabs/client": "^1.7.0",
     "@google/generative-ai": "^0.24.1",
     "@hookform/resolvers": "^5.2.1",
     "class-variance-authority": "^0.7.1",
