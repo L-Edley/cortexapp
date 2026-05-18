@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { CortexApiResponse, CortexRecordType, Priority } from "@/lib/types";
 
 function mockClassify(message: string): CortexApiResponse {
@@ -120,7 +121,6 @@ export async function POST(req: NextRequest) {
 
     if (provider === "gemini" && apiKey) {
       try {
-        const { GoogleGenerativeAI } = await import("@google/generative-ai");
         const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({ model: modelName });
 
