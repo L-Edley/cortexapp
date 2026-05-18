@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Mic, MicOff, Loader2 } from "lucide-react";
+import Blob from "./Blob";
 
 interface VoiceCenterProps {
   onCommandComplete: (command: string) => void;
@@ -93,7 +94,10 @@ export default function VoiceCenter({ onCommandComplete }: VoiceCenterProps) {
   };
 
   return (
-    <div className="flex flex-col items-center w-full max-w-2xl mx-auto space-y-4 p-4 border border-zinc-800 bg-zinc-950/50 rounded-2xl">
+    <>
+      <Blob isListening={isListening} />
+
+      <div className="flex flex-col items-center w-full max-w-2xl mx-auto space-y-4 p-4 border border-zinc-800 bg-zinc-950/50 rounded-2xl">
       <button
         onClick={toggleListening}
         className={`p-4 rounded-full transition-all duration-300 shadow-lg ${
@@ -117,6 +121,7 @@ export default function VoiceCenter({ onCommandComplete }: VoiceCenterProps) {
           </p>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
