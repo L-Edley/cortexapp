@@ -14,8 +14,8 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# pasta antiga/experimental
-jarvis-os/
+# pasta legada/experimental
+cortex-legacy/
 
 # arquivo estranho criado no Windows
 nul
