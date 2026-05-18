@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Wallet, Trash2, TrendingDown, Calendar } from "lucide-react";
 import type { CortexRecord } from "@/lib/types";
 import { getRecordsByType, getTotalSpent, getSpentToday } from "@/lib/storage";
-import { deleteRecord } from "@/lib/obsidian";
+import { deleteRecord } from "@/lib/storageProvider";
 
 export default function FinancesView() {
   const [expenses, setExpenses] = useState<CortexRecord[]>([]);

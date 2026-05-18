@@ -135,6 +135,69 @@ NEXT_PUBLIC_OBSIDIAN_API_KEY=sua-chave-aqui
 >
 > No futuro, considerar Tauri ou Electron para acesso local mais robusto ao vault.
 
+## Firebase como camada de dados primária
+
+O Cortex pode usar **Firebase Firestore** como camada de dados primária, com localStorage como cache local e Obsidian como backup/export.
+
+### Arquitetura
+
+```
+Command Center / Views
+        │
+        ▼
+  Storage Provider (lib/storageProvider.ts)
+        │
+        ├── localStorage (cache local síncrono)
+        ├── Firebase/Firestore (cloud, auth obrigatório)
+        └── Obsidian REST API (backup/export híbrido)
+```
+
+### Modos de armazenamento
+
+| Modo | Descrição |
+|------|-----------|
+| `local` | Apenas localStorage (comportamento padrão) |
+| `firebase` | Firebase como primário, localStorage como cache |
+| `hybrid` | Firebase + localStorage + Obsidian simultaneamente |
+
+### Configuração
+
+1. Crie um projeto em [console.firebase.google.com](https://console.firebase.google.com)
+2. Ative **Authentication** → Google provider
+3. Ative **Firestore Database** em modo de teste (ou produza com as regras em `firebase/firestore.rules`)
+4. Copie as credenciais do Web SDK e adicione ao `.env.local`:
+
+```env
+NEXT_PUBLIC_FIREBASE_API_KEY=xxx
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=xxx.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=xxx
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=xxx.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=xxx
+NEXT_PUBLIC_FIREBASE_APP_ID=xxx
+```
+
+5. Faça login com Google no Cortex (Configurações → Firebase Sync)
+6. Escolha o modo de armazenamento e clique em **Migrar registros locais para Firebase**
+
+### Regras do Firestore
+
+O arquivo `firebase/firestore.rules` garante que cada usuário só acesse sua própria subcoleção.
+
+### Provider de armazenamento
+
+Todas as operações de escrita passam pelo `lib/storageProvider.ts`, que:
+- Salva sempre no **localStorage** primeiro (leitura instantânea)
+- Se Firebase estiver configurado e logado: envia para o **Firestore**
+- Se modo **híbrido**: também salva no **Obsidian vault** via REST API
+
+Funções expostas:
+- `saveRecord(record)` — salva em todas as camadas ativas
+- `updateRecord(id, patch)` — atualiza em todas as camadas
+- `deleteRecord(id)` — remove de todas as camadas
+- `migrateLocalToFirebase()` — envia localStorage → Firestore
+- `pullFromFirebase()` — importa Firestore → localStorage
+- `getCurrentMode()`, `setStorageMode(mode)` — controle do modo
+
 ### Próximo passo
 
 Integração direta entre Cortex e o vault Obsidian — via sincronização com pastas locais ou Git.

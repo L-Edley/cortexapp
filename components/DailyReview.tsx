@@ -7,8 +7,8 @@ import {
   getTodaysRecords,
   getSpentToday,
   getRecordsByType,
-  saveRecord,
 } from "@/lib/storage";
+import { saveRecord } from "@/lib/storageProvider";
 
 export default function DailyReview() {
   const [todaysEntries, setTodaysEntries] = useState<CortexRecord[]>([]);

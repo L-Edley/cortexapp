@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Send, Loader2, AlertCircle, Sparkles, Zap, CheckCircle2, CloudOff } from "lucide-react";
 import type { CortexApiResponse, CortexRecord } from "@/lib/types";
-import { saveRecord } from "@/lib/obsidian";
+import { saveRecord } from "@/lib/storageProvider";
 
 type Interaction = {
   id: string;
@@ -89,9 +89,9 @@ export default function CommandCenter() {
         createdAt: interaction.timestamp,
       };
 
-      const sync = await saveRecord(record);
+      await saveRecord(record);
       localStorage.setItem("cortex_has_data", "true");
-      setSyncIndicator({ id: interaction.id, ok: sync.savedObsidian });
+      setSyncIndicator({ id: interaction.id, ok: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao processar mensagem");
     } finally {

@@ -23,6 +23,8 @@ export type CortexRecord = {
   nextAction: string;
   status: RecordStatus;
   createdAt: string;
+  syncedAt?: string | null;
+  firebaseId?: string | null;
 };
 
 export type CortexApiResponse = {

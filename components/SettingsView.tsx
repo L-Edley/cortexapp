@@ -18,6 +18,10 @@ import {
   ExternalLink,
   AlertTriangle,
   CheckCircle2,
+  Cloud,
+  LogIn,
+  LogOut,
+  ArrowUpDown,
 } from "lucide-react";
 import { getRecords, clearRecords } from "@/lib/storage";
 import {
@@ -29,6 +33,20 @@ import {
   getObsidianConfig,
   syncLocalRecordsToObsidian,
 } from "@/lib/obsidian";
+import {
+  getCurrentMode,
+  setStorageMode,
+  getStorageLabel,
+  migrateLocalToFirebase,
+  pullFromFirebase,
+} from "@/lib/storageProvider";
+import type { StorageMode } from "@/lib/storageProvider";
+import {
+  signInWithGoogle,
+  signOut as firebaseSignOut,
+  onAuthChange,
+  getCurrentUser,
+} from "@/lib/firebase/auth";
 
 export default function SettingsView() {
   const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline">("checking");
@@ -44,11 +62,24 @@ export default function SettingsView() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
 
+  const [firebaseUser, setFirebaseUser] = useState(getCurrentUser());
+  const [storageMode, setStorageModeLocal] = useState<StorageMode>(getCurrentMode());
+  const [firebaseConfigured, setFirebaseConfigured] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+  const [migrationResult, setMigrationResult] = useState<string | null>(null);
+  const [pulling, setPulling] = useState(false);
+  const [pullResult, setPullResult] = useState<string | null>(null);
+
   useEffect(() => {
     setMounted(true);
     const records = getRecords();
     setRecordCount(records.length);
     checkApi();
+    setFirebaseConfigured(!!process.env.NEXT_PUBLIC_FIREBASE_API_KEY && !!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
+    const unsub = onAuthChange((user) => {
+      setFirebaseUser(user);
+    });
+    return () => unsub();
   }, []);
 
   const checkApi = async () => {
@@ -355,6 +386,195 @@ export default function SettingsView() {
               </p>
             </div>
           </a>
+        </div>
+      </div>
+
+      <div className="mt-8">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-sky-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+            <Cloud className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-100">Firebase Sync</h2>
+            <p className="text-sm text-zinc-500">
+              Sincronização em nuvem com Firestore + Google Auth
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  firebaseConfigured ? "bg-sky-500/20" : "bg-zinc-500/20"
+                }`}>
+                  <Cloud className={`w-4 h-4 ${firebaseConfigured ? "text-sky-400" : "text-zinc-500"}`} />
+                </div>
+                <div>
+                  <p className="text-sm text-zinc-200">
+                    {firebaseConfigured ? "Firebase configurado" : "Firebase não configurado"}
+                  </p>
+                  <p className="text-xs text-zinc-500">
+                    {firebaseConfigured
+                      ? "Variáveis de ambiente detectadas"
+                      : "Configure NEXT_PUBLIC_FIREBASE_* no .env.local"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {firebaseConfigured && (
+            <>
+              <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                      firebaseUser ? "bg-green-500/20" : "bg-zinc-500/20"
+                    }`}>
+                      {firebaseUser ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-400" />
+                      ) : (
+                        <LogIn className="w-4 h-4 text-zinc-400" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm text-zinc-200">
+                        {firebaseUser ? `Logado como ${firebaseUser.displayName ?? firebaseUser.email}` : "Não logado"}
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        {firebaseUser
+                          ? "Autenticado via Google — registros vão para sua conta"
+                          : "Faça login para ativar a sincronização em nuvem"}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={firebaseUser ? firebaseSignOut : signInWithGoogle}
+                    className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                      firebaseUser
+                        ? "text-red-400 hover:bg-red-500/10"
+                        : "text-sky-400 hover:bg-sky-500/10"
+                    }`}
+                  >
+                    {firebaseUser ? (
+                      <span className="flex items-center gap-1"><LogOut className="w-3 h-3" />Sair</span>
+                    ) : (
+                      <span className="flex items-center gap-1"><LogIn className="w-3 h-3" />Entrar com Google</span>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {firebaseUser && (
+                <>
+                  <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center">
+                        <HardDrive className="w-4 h-4 text-cyan-400" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm text-zinc-200">Modo de armazenamento</p>
+                        <p className="text-xs text-zinc-500 mb-2">
+                          Atual: {getStorageLabel()}
+                        </p>
+                        <div className="flex gap-2">
+                          {(["local", "firebase", "hybrid"] as StorageMode[]).map((mode) => (
+                            <button
+                              key={mode}
+                              onClick={() => {
+                                setStorageMode(mode);
+                                setStorageModeLocal(mode);
+                              }}
+                              className={`text-xs px-3 py-1.5 rounded-lg border transition-all ${
+                                storageMode === mode
+                                  ? "bg-cyan-500/20 border-cyan-500/30 text-cyan-400"
+                                  : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-600"
+                              }`}
+                            >
+                              {mode === "local" ? "Local" : mode === "firebase" ? "Firebase" : "Híbrido"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={async () => {
+                      setMigrating(true);
+                      setMigrationResult(null);
+                      const result = await migrateLocalToFirebase();
+                      setMigrationResult(
+                        `${result.success} migrado(s), ${result.failed} falha(s).`
+                      );
+                      setMigrating(false);
+                    }}
+                    disabled={migrating}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 transition-all text-left disabled:opacity-40"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-sky-500/20 flex items-center justify-center flex-shrink-0">
+                      {migrating ? (
+                        <RefreshCw className="w-4 h-4 text-sky-400 animate-spin" />
+                      ) : (
+                        <ArrowUpDown className="w-4 h-4 text-sky-400" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm text-zinc-200">
+                        {migrating ? "Migrando..." : "Migrar registros locais para Firebase"}
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        Envia todos os registros do localStorage para o Firestore
+                      </p>
+                    </div>
+                  </button>
+                  {migrationResult && (
+                    <div className="rounded-xl p-3 text-sm flex items-center gap-2 bg-green-500/10 border border-green-500/20 text-green-400">
+                      <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                      <span>{migrationResult}</span>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={async () => {
+                      setPulling(true);
+                      setPullResult(null);
+                      const count = await pullFromFirebase();
+                      setPullResult(`${count} registro(s) importado(s) do Firebase.`);
+                      setPulling(false);
+                      setRecordCount(getRecords().length);
+                    }}
+                    disabled={pulling}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 transition-all text-left disabled:opacity-40"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-sky-500/20 flex items-center justify-center flex-shrink-0">
+                      {pulling ? (
+                        <RefreshCw className="w-4 h-4 text-sky-400 animate-spin" />
+                      ) : (
+                        <Download className="w-4 h-4 text-sky-400" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm text-zinc-200">
+                        {pulling ? "Importando..." : "Importar registros do Firebase"}
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        Baixa registros do Firestore para o cache local
+                      </p>
+                    </div>
+                  </button>
+                  {pullResult && (
+                    <div className="rounded-xl p-3 text-sm flex items-center gap-2 bg-green-500/10 border border-green-500/20 text-green-400">
+                      <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                      <span>{pullResult}</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
         </div>
       </div>
 

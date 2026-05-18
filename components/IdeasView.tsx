@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Lightbulb, Archive, ArrowUpRight, Trash2 } from "lucide-react";
 import type { CortexRecord } from "@/lib/types";
 import { getRecordsByType } from "@/lib/storage";
-import { saveRecord, updateRecord, deleteRecord } from "@/lib/obsidian";
+import { saveRecord, updateRecord, deleteRecord } from "@/lib/storageProvider";
 
 export default function IdeasView() {
   const [ideas, setIdeas] = useState<CortexRecord[]>([]);
