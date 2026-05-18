@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { MicIcon, MicOff, Ear, AlertTriangle } from "lucide-react";
 import type { CortexApiResponse, CortexRecord } from "@/lib/types";
 import { saveRecord } from "@/lib/storageProvider";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useVoice } from "@/hooks/useVoice";
 
 export default function CommandCenter() {
@@ -11,13 +12,23 @@ export default function CommandCenter() {
   const [loading, setLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState("SISTEMA ONLINE. AGUARDANDO COMANDOS.");
 
-  const { state, isSupported, startListening, stopListening, speak } = useVoice(
-    (transcript) => {
+  const {
+    isListening,
+    transcript,
+    error: speechError,
+    isSupported,
+    startListening,
+    stopListening,
+    resetTranscript,
+  } = useSpeechRecognition();
+
+  const { speak } = useVoice();
+
+  useEffect(() => {
+    if (transcript) {
       setMessage(transcript);
     }
-  );
-
-  const isListening = state === "listening";
+  }, [transcript]);
 
   const handleSend = async (text?: string) => {
     const msg = (text ?? message).trim();
@@ -101,6 +112,7 @@ export default function CommandCenter() {
       stopListening();
     } else {
       setMessage("");
+      resetTranscript();
       startListening();
     }
   };
@@ -166,6 +178,13 @@ export default function CommandCenter() {
         <div className="voice-error">
           <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
           <span>Seu navegador não suporta reconhecimento de voz.</span>
+        </div>
+      )}
+
+      {speechError && !isListening && (
+        <div className="voice-error">
+          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+          <span>{speechError}</span>
         </div>
       )}
     </div>
