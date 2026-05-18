@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import DashboardView from '@/components/dashboard/DashboardView';
+import DashboardView from '@/components/DashboardView';
 
 export default function DashboardClient() {
   const router = useRouter();

@@ -2,10 +2,20 @@ import type { CortexRecord, CortexRecordType } from "./types";
 import * as local from "./storage";
 import * as firebase from "./firebase/records";
 import * as obsidian from "./obsidian/vaultStorage";
-import { getCurrentUser } from "./firebase/auth";
+
+// ============================================
+// STORAGE PROVIDER — Zero-Cost Architecture
+// localStorage (primário) + Firebase + Obsidian
+// ============================================
 
 export type StorageMode = "local" | "firebase" | "hybrid";
-export type AuthState = "authenticated" | "unauthenticated" | "unknown";
+
+function firebaseAvailable(): boolean {
+  return (
+    !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY &&
+    !!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
+  );
+}
 
 function getMode(): StorageMode {
   if (typeof window === "undefined") return "local";
@@ -18,13 +28,6 @@ function getMode(): StorageMode {
 
 function setMode(mode: StorageMode): void {
   localStorage.setItem("cortex_storage_mode", mode);
-}
-
-function firebaseAvailable(): boolean {
-  return (
-    !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY &&
-    !!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
-  );
 }
 
 export async function saveRecord(record: CortexRecord): Promise<void> {
@@ -41,7 +44,7 @@ export async function saveRecord(record: CortexRecord): Promise<void> {
     try {
       await obsidian.saveRecord(record);
     } catch {
-      // Obsidian offline — keep local + firebase
+      // Obsidian offline — keep local copy
     }
   }
 }
@@ -154,13 +157,6 @@ export async function pullFromFirebase(): Promise<number> {
   return remote.length;
 }
 
-export async function pushToFirebase(): Promise<number> {
-  if (!firebaseAvailable()) return 0;
-  const localRecords = local.getRecords();
-  const result = await firebase.migrateFromLocal(localRecords);
-  return result.success;
-}
-
 export async function migrateLocalToFirebase(): Promise<{
   success: number;
   failed: number;
@@ -196,91 +192,34 @@ export function getStorageLabelForIndicator(): string {
   }
 }
 
-// ==========================================
-// AS DUAS FUNÇÕES ABAIXO FORAM CORRIGIDAS:
-// ==========================================
-
+// Subscription com carregamento imediato do cache local
 export function subscribeRecords(
   callback: (records: CortexRecord[]) => void
 ): () => void {
-  const mode = getMode();
-
-  // 1. CARREGAMENTO IMEDIATO: Garante que a UI renderize na hora com o que tem no local.
+  // Carregamento imediato
   const currentLocalRecords = local.getRecords();
   callback(currentLocalRecords);
 
-  // Se o modo for estritamente local, encerramos aqui. A UI já tem os dados.
-  if (mode === "local") return () => {};
+  // Polling para mudanças no localStorage (reage a saves de outras tabs, etc.)
+  const interval = setInterval(() => {
+    callback(local.getRecords());
+  }, 3000);
 
-  // 2. FIREBASE / HYBRID: Tenta sincronizar com a nuvem
-  if (firebaseAvailable()) {
-    try {
-      const user = getCurrentUser();
-      
-      // Se não tem usuário, já devolvemos os dados locais acima, então não faz mais nada.
-      if (!user) return () => {};
-
-      return firebase.subscribeRecords((firebaseRecords) => {
-        if (firebaseRecords.length > 0 || currentLocalRecords.length === 0) {
-          
-          if (mode === "hybrid") {
-            firebaseRecords.forEach(record => {
-              const existing = local.getRecordsById(record.id);
-              if (!existing) {
-                local.saveRecord(record);
-              } else if (new Date(record.createdAt) > new Date(existing.createdAt)) {
-                local.updateRecord(record.id, record);
-              }
-            });
-          }
-
-          callback(firebaseRecords);
-        }
-      });
-    } catch {
-      return () => {};
-    }
-  }
-  return () => {};
+  return () => clearInterval(interval);
 }
 
 export function subscribeRecordsByType(
   type: CortexRecordType,
   callback: (records: CortexRecord[]) => void
 ): () => void {
-  const mode = getMode();
-
-  // Carregamento imediato do cache local
+  // Carregamento imediato
   const currentLocalRecords = local.getRecordsByType(type);
   callback(currentLocalRecords);
 
-  if (mode === "local") return () => {};
+  // Polling
+  const interval = setInterval(() => {
+    callback(local.getRecordsByType(type));
+  }, 3000);
 
-  if (firebaseAvailable()) {
-    try {
-      const user = getCurrentUser();
-      if (!user) return () => {};
-
-      return firebase.subscribeRecordsByType(type, (firebaseRecords) => {
-        if (firebaseRecords.length > 0 || currentLocalRecords.length === 0) {
-          
-          if (mode === "hybrid") {
-            firebaseRecords.forEach(record => {
-              const existing = local.getRecordsById(record.id);
-              if (!existing) {
-                local.saveRecord(record);
-              } else if (new Date(record.createdAt) > new Date(existing.createdAt)) {
-                local.updateRecord(record.id, record);
-              }
-            });
-          }
-
-          callback(firebaseRecords);
-        }
-      });
-    } catch {
-      return () => {};
-    }
-  }
-  return () => {};
+  return () => clearInterval(interval);
 }
