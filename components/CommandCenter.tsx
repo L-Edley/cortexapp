@@ -5,6 +5,7 @@ import { MicIcon, MicOff, Ear, AlertTriangle } from "lucide-react";
 import type { CortexApiResponse, CortexRecord } from "@/lib/types";
 import { saveRecord } from "@/lib/storageProvider";
 import { useVoice } from "@/hooks/useVoice";
+import VoiceCenter from "@/components/VoiceCenter";
 
 export default function CommandCenter() {
   const [message, setMessage] = useState("");
@@ -96,6 +97,11 @@ export default function CommandCenter() {
     }
   };
 
+  const handleVoiceCommand = async (transcript: string) => {
+    setMessage(transcript);
+    await handleSend(transcript);
+  };
+
   const handleMicClick = () => {
     if (isListening) {
       stopListening();
@@ -168,6 +174,8 @@ export default function CommandCenter() {
           <span>Seu navegador não suporta reconhecimento de voz.</span>
         </div>
       )}
+
+      <VoiceCenter onCommandComplete={handleVoiceCommand} />
     </div>
   );
 }
