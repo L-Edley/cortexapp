@@ -1,5 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 
+/**
+ * useVoice Hook
+ * Strictly uses Web Speech API and Web Speech Synthesis (pt-BR) to run locally,
+ * avoiding any cloud service charges (such as ElevenLabs) or API key exposure.
+ */
+
 export const useVoice = (onTranscript: (text: string) => void) => {
   const [state, setState] = useState<"idle" | "listening" | "processing" | "speaking">("idle");
   const [isSupported, setIsSupported] = useState(false);
