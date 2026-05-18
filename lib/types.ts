@@ -1,3 +1,7 @@
+/**
+ * lib/types.ts
+ * Core types for the Cortex Operacional application, including record structures.
+ */
 export type CortexRecordType =
   | "task"
   | "idea"
