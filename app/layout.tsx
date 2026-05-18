@@ -1,17 +1,7 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import ServiceWorkerRegister from '@/components/ServiceWorkerRegister';
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-sans',
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  variable: '--font-mono',
-});
+import TopBar from '@/components/TopBar';
 
 export const metadata: Metadata = {
   title: 'Cortex Operacional',
@@ -49,7 +39,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
-  themeColor: '#f97316',
+  themeColor: '#00D4FF',
 };
 
 export default function RootLayout({
@@ -58,7 +48,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="pt-BR" className={`${inter.variable} ${jetbrainsMono.variable}`}>
+    <html lang="pt-BR">
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="application-name" content="Cortex" />
@@ -66,10 +56,27 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="Cortex" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="theme-color" content="#f97316" />
+        <meta name="theme-color" content="#00D4FF" />
       </head>
-      <body className="antialiased font-sans bg-zinc-950 text-zinc-50" suppressHydrationWarning>
+      <body suppressHydrationWarning className="cortex-app">
+        <svg style={{ display: 'none' }}>
+          <filter id="noise">
+            <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/>
+            <feColorMatrix type="saturate" values="0"/>
+          </filter>
+        </svg>
+
+        <div className="background-grid" />
+        <div className="scan-lines" />
+        <div className="noise-overlay" style={{
+          filter: 'url(#noise)',
+          opacity: 'var(--noise-opacity)',
+          position: 'fixed', inset: 0,
+          pointerEvents: 'none', zIndex: 9998
+        }} />
+
         <ServiceWorkerRegister />
+        <TopBar />
         {children}
       </body>
     </html>
