@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { mockClassify } from "../route";
+import { mockClassify } from "@/lib/classifier";
 
 export const runtime = "nodejs";
 
