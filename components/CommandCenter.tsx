@@ -1,24 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { MicIcon, MicOff, Ear, AlertTriangle } from "lucide-react";
+import { MicOff, AlertTriangle } from "lucide-react";
 import type { CortexApiResponse, CortexRecord } from "@/lib/types";
 import { saveRecord } from "@/lib/storageProvider";
-import { useVoice } from "@/hooks/useVoice";
 import VoiceCenter from "@/components/VoiceCenter";
 
 export default function CommandCenter() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState("SISTEMA ONLINE. AGUARDANDO COMANDOS.");
-
-  const { state, isSupported, startListening, stopListening, speak } = useVoice(
-    (transcript) => {
-      setMessage(transcript);
-    }
-  );
-
-  const isListening = state === "listening";
 
   const handleSend = async (text?: string) => {
     const msg = (text ?? message).trim();
@@ -73,16 +64,26 @@ export default function CommandCenter() {
 
       let responseText = "";
       if (data.type === "expense") {
-        responseText = `Registrado. ${data.category || 'Despesa'}: R$ ${data.amount}.`;
+        responseText = `Registrado. ${data.category || "Despesa"}: R$ ${data.amount}.`;
       } else if (data.type === "task") {
-        responseText = `Entendido. Tarefa '${data.title}' adicionada com prioridade ${data.priority === 'high' ? 'alta' : 'normal'}.`;
+        responseText = `Entendido. Tarefa '${data.title}' adicionada com prioridade ${data.priority === "high" ? "alta" : "normal"}.`;
       } else {
         responseText = `Entendido. '${data.title}' registrado no banco de dados.`;
       }
 
       setAiResponse(responseText.toUpperCase());
-      speak(responseText);
 
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(responseText);
+        utterance.lang = "pt-BR";
+        utterance.rate = 0.95;
+        const voices = window.speechSynthesis.getVoices();
+        const ptVoice = voices.find((v) => v.lang.startsWith("pt"));
+        if (ptVoice) utterance.voice = ptVoice;
+        utterance.onend = () => {};
+        window.speechSynthesis.speak(utterance);
+      }
     } catch (err) {
       setAiResponse("FALHA AO PROCESSAR COMANDO. TENTE NOVAMENTE.");
     } finally {
@@ -102,28 +103,23 @@ export default function CommandCenter() {
     await handleSend(transcript);
   };
 
-  const handleMicClick = () => {
-    if (isListening) {
-      stopListening();
-    } else {
-      setMessage("");
-      startListening();
-    }
-  };
-
   return (
     <div className="command-center">
       <div className="cmd-header">
-        <span className="cmd-dot red"/>
-        <span className="cmd-dot yellow"/>
-        <span className="cmd-dot green"/>
-        <span className="cmd-title glitch-text" data-text="AION — COMMAND INTERFACE v2.0">AION — COMMAND INTERFACE v2.0</span>
+        <span className="cmd-dot red" />
+        <span className="cmd-dot yellow" />
+        <span className="cmd-dot green" />
+        <span className="cmd-title glitch-text" data-text="AION — COMMAND INTERFACE v2.0">
+          AION — COMMAND INTERFACE v2.0
+        </span>
         <span className="cmd-status">● ONLINE</span>
       </div>
 
       <div className="cmd-response">
         <span className="cmd-prefix">AION › </span>
-        <span key={aiResponse} className="cmd-text typewriter">{aiResponse}</span>
+        <span key={aiResponse} className="cmd-text typewriter">
+          {aiResponse}
+        </span>
         <span className="cmd-cursor">█</span>
       </div>
 
@@ -131,49 +127,21 @@ export default function CommandCenter() {
         <span className="cmd-prompt">USER › </span>
         <input
           className="cmd-input"
-          placeholder={isListening ? "Aion está ouvindo..." : "fale ou digite um comando..."}
+          placeholder="fale ou digite um comando..."
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={loading || isListening}
+          disabled={loading}
         />
-        {!isSupported ? (
-          <div className="voice-btn voice-unsupported" title="Voz não suportada neste navegador">
-            <MicOff className="w-5 h-5" />
-          </div>
-        ) : (
-          <button
-            className={`voice-btn ${isListening ? "voice-active" : ""}`}
-            onClick={handleMicClick}
-            disabled={loading}
-            title={isListening ? "Parar escuta" : "Iniciar escuta de voz"}
-          >
-            {isListening ? (
-              <>
-                <Ear className="w-5 h-5 voice-pulse" />
-                <span className="voice-ring" />
-              </>
-            ) : (
-              <MicIcon className="w-5 h-5" />
-            )}
-          </button>
-        )}
+        <button
+          className="voice-btn"
+          onClick={() => handleSend()}
+          disabled={loading || !message.trim()}
+          title="Enviar comando"
+        >
+          <span className="text-xs font-mono">ENV</span>
+        </button>
       </div>
-
-      {isListening && (
-        <div className="voice-status">
-          <span className="voice-status-dot" />
-          <span>Aion está ouvindo...</span>
-          <button className="voice-cancel" onClick={stopListening}>cancelar</button>
-        </div>
-      )}
-
-      {!isSupported && (
-        <div className="voice-error">
-          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-          <span>Seu navegador não suporta reconhecimento de voz.</span>
-        </div>
-      )}
 
       <VoiceCenter onCommandComplete={handleVoiceCommand} />
     </div>
