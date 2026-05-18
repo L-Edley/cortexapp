@@ -62,12 +62,46 @@ Funções disponíveis em `lib/storage.ts`:
 
 Para limpar os dados, vá em **Configurações → Limpar dados locais**.
 
-## Próximo passo: Supabase
+## Obsidian como cérebro central
 
-O MVP usa localStorage para persistência local. O próximo passo é migrar para Supabase para:
-- Sincronizar entre dispositivos
-- Backup na nuvem
-- Autenticação de usuários
+O Cortex pode exportar todos os registros como Markdown compatível com Obsidian.
+
+Nesta etapa, os dados ainda ficam no **localStorage**. A exportação gera arquivos `.md` prontos para
+um vault Obsidian — sem escrever diretamente no disco ainda.
+
+### Como exportar
+
+Vá em **Configurações → Obsidian Export** e escolha:
+
+- **Exportar todos os registros** — baixa um `.md` com todos os registros formatados
+- **Exportar Dashboard.md** — visão geral com blocos Dataview
+- **Exportar nota diária de hoje** — nota no formato `Daily/YYYY-MM-DD.md`
+- **Copiar estrutura recomendada do vault** — README com pastas e plugins
+
+### Estrutura do vault
+
+```
+vault/
+├── Daily/          — Notas diárias e pedidos de foco
+├── Financeiro/     — Gastos e despesas
+├── Ideias/         — Ideias em quarentena
+├── Inbox/          — Registros não classificados
+├── ProjectNotes/   — Notas de projetos
+├── Tarefas/        — Tarefas pendentes e concluídas
+├── Dashboard.md    — Visão geral com Dataview
+```
+
+### Plugins recomendados para Obsidian
+
+- **Dataview** — Consultas SQL-like nas notas
+- **Tasks** — Gerenciamento de tarefas com checkboxes
+- **Periodic Notes** — Criação automática de notas diárias
+- **Templater** — Templates avançados
+- **Obsidian Git** — Versionamento do vault (próxima etapa)
+
+### Próximo passo
+
+Integração direta entre Cortex e o vault Obsidian — via sincronização com pastas locais ou Git.
 
 ## Build
 

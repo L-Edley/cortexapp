@@ -9,12 +9,23 @@ import {
   Trash2,
   Info,
   Cpu,
+  BookOpen,
+  Download,
+  ClipboardCopy,
+  FileText,
 } from "lucide-react";
 import { getRecords, clearRecords } from "@/lib/storage";
+import {
+  exportAllRecordsAsMarkdown,
+  exportDashboardMarkdown,
+  exportDailyNoteMarkdown,
+  copyVaultReadmeToClipboard,
+} from "@/lib/obsidian";
 
 export default function SettingsView() {
   const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline">("checking");
   const [recordCount, setRecordCount] = useState(0);
+  const [copyFeedback, setCopyFeedback] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -47,6 +58,30 @@ export default function SettingsView() {
       localStorage.removeItem("cortex_has_data");
       setRecordCount(0);
     }
+  };
+
+  const handleExportAll = () => {
+    const records = getRecords();
+    if (records.length === 0) {
+      alert("Nenhum registro para exportar.");
+      return;
+    }
+    exportAllRecordsAsMarkdown(records);
+  };
+
+  const handleExportDashboard = () => {
+    exportDashboardMarkdown(getRecords());
+  };
+
+  const handleExportDaily = () => {
+    const today = new Date().toISOString().split("T")[0];
+    exportDailyNoteMarkdown(today, getRecords());
+  };
+
+  const handleCopyVaultReadme = async () => {
+    await copyVaultReadmeToClipboard();
+    setCopyFeedback(true);
+    setTimeout(() => setCopyFeedback(false), 2000);
   };
 
   if (!mounted) return null;
@@ -143,6 +178,84 @@ export default function SettingsView() {
           <Trash2 className="w-4 h-4" />
           Limpar dados locais
         </button>
+      </div>
+
+      <div className="mt-8">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
+            <BookOpen className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-100">Obsidian Export</h2>
+            <p className="text-sm text-zinc-500">
+              Exporte registros como Markdown compatível com Obsidian
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <button
+            onClick={handleExportAll}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 transition-all text-left"
+          >
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+              <Download className="w-4 h-4 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-sm text-zinc-200">Exportar todos os registros</p>
+              <p className="text-xs text-zinc-500">
+                Gera um arquivo .md com todos os registros formatados
+              </p>
+            </div>
+          </button>
+
+          <button
+            onClick={handleExportDashboard}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 transition-all text-left"
+          >
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+              <FileText className="w-4 h-4 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-sm text-zinc-200">Exportar Dashboard.md</p>
+              <p className="text-xs text-zinc-500">
+                Gera Dashboard.md com blocos Dataview
+              </p>
+            </div>
+          </button>
+
+          <button
+            onClick={handleExportDaily}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 transition-all text-left"
+          >
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+              <FileText className="w-4 h-4 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-sm text-zinc-200">Exportar nota diária de hoje</p>
+              <p className="text-xs text-zinc-500">
+                Gera Daily-{new Date().toISOString().split("T")[0]}.md
+              </p>
+            </div>
+          </button>
+
+          <button
+            onClick={handleCopyVaultReadme}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 transition-all text-left"
+          >
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+              <ClipboardCopy className="w-4 h-4 text-amber-400" />
+            </div>
+            <div>
+              <p className="text-sm text-zinc-200">
+                {copyFeedback ? "Copiado!" : "Copiar estrutura recomendada do vault"}
+              </p>
+              <p className="text-xs text-zinc-500">
+                Copia README.md do vault para a área de transferência
+              </p>
+            </div>
+          </button>
+        </div>
       </div>
     </div>
   );
