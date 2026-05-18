@@ -104,100 +104,90 @@ function mockClassify(message: string): CortexApiResponse {
   };
 }
 
-const PROVIDERS: Record<string, (message: string, opts: { apiKey: string; baseUrl: string; model: string }) => Promise<CortexApiResponse>> = {
-  mock: async (message) => mockClassify(message),
-
-  openai: async (message, { apiKey, baseUrl, model }) => {
-    const res = await fetch(`${baseUrl || "https://api.openai.com/v1"}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model || "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: `You are a classifier. Return valid JSON only with these fields:
-type (enum: task, idea, expense, project_note, daily_review, focus_request, unknown),
-title (string),
-description (string - MUST be empty when just repeating the original user message. Use description ONLY for additional useful details),
-priority (enum: low, medium, high),
-project (string or null),
-amount (number or null),
-category (string or null),
-dueDate (string date or null),
-nextAction (string). No markdown, no code fences.`,
-          },
-          { role: "user", content: message },
-        ],
-        temperature: 0.1,
-      }),
-    });
-    const data = await res.json();
-    const text = data.choices?.[0]?.message?.content || "{}";
-    const cleaned = text.replace(/```(?:json)?/g, "").trim();
-    return JSON.parse(cleaned) as CortexApiResponse;
-  },
-
-  gemini: async (message, { apiKey, baseUrl, model }) => {
-    const res = await fetch(`${baseUrl || "https://generativelanguage.googleapis.com/v1beta"}/models/${model || "gemini-2.0-flash-lite"}:generateContent?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              {
-                text: `Classify this message and return ONLY valid JSON with these exact fields:
-type (task, idea, expense, project_note, daily_review, focus_request, unknown)
-title (string)
-description (string - MUST be empty when just repeating the original user message. Use description ONLY for additional useful details)
-priority (low, medium, high)
-project (string or null)
-amount (number or null)
-category (string or null)
-dueDate (date string or null)
-nextAction (string)
-
-Message: """${message}"""`,
-              },
-            ],
-          },
-        ],
-        generationConfig: { temperature: 0.1 },
-      }),
-    });
-    const data = await res.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-    const cleaned = text.replace(/```(?:json)?/g, "").trim();
-    return JSON.parse(cleaned) as CortexApiResponse;
-  },
-};
-
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const message = body.message;
+    const { message } = await req.json();
 
     if (!message || typeof message !== "string" || message.trim().length === 0) {
       return NextResponse.json({ error: "Mensagem inválida ou vazia" }, { status: 400 });
     }
 
     const provider = process.env.AI_PROVIDER || "mock";
-    const apiKey = process.env.AI_API_KEY || "";
-    const baseUrl = process.env.AI_BASE_URL || "";
-    const model = process.env.AI_MODEL || "";
+    const apiKey = process.env.AI_API_KEY || process.env.GEMINI_API_KEY || "";
+    const modelName = process.env.AI_MODEL || "gemini-2.5-flash";
 
-    const handler = PROVIDERS[provider];
     let result: CortexApiResponse;
 
-    if (handler) {
+    if (provider === "gemini" && apiKey) {
       try {
-        result = await handler(message.trim(), { apiKey, baseUrl, model });
-      } catch {
+        const { GoogleGenerativeAI } = await import("@google/generative-ai");
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: modelName });
+
+        const prompt = `
+Você é o Aion, a IA central do sistema Cortex.
+Analise a mensagem do usuário e extraia os dados estruturados estritamente no seguinte formato JSON.
+
+Regras de classificação:
+1. "type" deve ser obrigatoriamente um destes valores: "task", "idea", "expense", "project_note", "daily_review", "focus_request", "unknown".
+   - Se for despesa/gasto/compra: "expense".
+   - Se for tarefa/compromisso/ação: "task".
+   - Se for uma ideia ou nota: "idea".
+   - Se for nota sobre projetos: "project_note".
+   - Se for revisão do dia: "daily_review".
+   - Se for pedido de foco/travamento: "focus_request".
+2. "priority" deve ser: "low", "medium" ou "high".
+3. "description" deve ser vazia ("") a menos que haja algum detalhe extra muito útil e que não seja apenas a repetição do título ou da mensagem original.
+4. "project" deve ser o nome do projeto relacionado (se houver), senão null.
+5. "amount" deve ser o valor numérico em reais se for uma despesa, senão null.
+6. "category" deve ser a categoria de despesa (ex: "alimentação", "transporte", "lazer", "moradia", etc.), senão null.
+7. "dueDate" deve ser a data de vencimento em formato YYYY-MM-DD se mencionada, senão null.
+8. "nextAction" deve ser uma curta descrição da próxima ação física/imediata recomendada.
+
+Responda APENAS com o objeto JSON estruturado válido, sem formatação markdown (sem \`\`\`json).
+
+Exemplo de resposta esperada:
+{
+  "type": "task",
+  "title": "Comprar leite",
+  "description": "",
+  "priority": "medium",
+  "project": null,
+  "amount": null,
+  "category": null,
+  "dueDate": null,
+  "nextAction": "Ir ao mercado comprar leite"
+}
+
+Mensagem do usuário: "${message.trim()}"
+`;
+
+        const responseResult = await model.generateContent(prompt);
+        const responseText = await responseResult.response.text();
+
+        // Extrai o JSON de forma extremamente robusta
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          throw new Error("Resposta do modelo não contém JSON válido");
+        }
+
+        const parsedData = JSON.parse(jsonMatch[0].trim());
+
+        result = {
+          type: ["task", "idea", "expense", "project_note", "daily_review", "focus_request", "unknown"].includes(parsedData.type)
+            ? parsedData.type
+            : "unknown",
+          title: parsedData.title || message.trim(),
+          description: parsedData.description || "",
+          priority: ["low", "medium", "high"].includes(parsedData.priority) ? parsedData.priority : "medium",
+          project: parsedData.project || null,
+          amount: typeof parsedData.amount === "number" ? parsedData.amount : null,
+          category: parsedData.category || null,
+          dueDate: parsedData.dueDate || null,
+          nextAction: parsedData.nextAction || "",
+        };
+      } catch (err) {
+        console.warn("Falha ao usar a API do Gemini, usando mockClassify como fallback:", err);
         result = mockClassify(message.trim());
       }
     } else {
@@ -205,19 +195,20 @@ export async function POST(req: NextRequest) {
     }
 
     const validated: CortexApiResponse = {
-      type: result.type ?? "unknown",
-      title: result.title ?? message.trim(),
-      description: result.description ?? "",
-      priority: ["low", "medium", "high"].includes(result.priority) ? result.priority : "medium",
-      project: result.project ?? null,
-      amount: typeof result.amount === "number" ? result.amount : null,
-      category: result.category ?? null,
-      dueDate: result.dueDate ?? null,
-      nextAction: result.nextAction ?? "",
+      type: result.type,
+      title: result.title,
+      description: result.description,
+      priority: result.priority,
+      project: result.project,
+      amount: result.amount,
+      category: result.category,
+      dueDate: result.dueDate,
+      nextAction: result.nextAction,
     };
 
     return NextResponse.json(validated);
-  } catch {
+  } catch (error) {
+    console.error("Erro no cérebro do Aion:", error);
     return NextResponse.json(
       { error: "Erro interno ao processar a mensagem" },
       { status: 500 }
