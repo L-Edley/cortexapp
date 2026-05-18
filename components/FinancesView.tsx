@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Wallet, Trash2, TrendingDown, Calendar } from "lucide-react";
 import type { CortexRecord } from "@/lib/types";
-import { getRecordsByType, getTotalSpent, getSpentToday } from "@/lib/storage";
+import { getRecordsByType, getTotalSpent, getSpentToday } from "@/lib/storageProvider";
 import { deleteRecord, subscribeRecordsByType } from "@/lib/storageProvider";
 
 export default function FinancesView() {

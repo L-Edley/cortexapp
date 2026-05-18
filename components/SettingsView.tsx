@@ -23,7 +23,7 @@ import {
   LogOut,
   ArrowUpDown,
 } from "lucide-react";
-import { getRecords, clearRecords } from "@/lib/storage";
+import { getRecords, clearRecords } from "@/lib/storageProvider";
 import {
   exportAllRecordsAsMarkdown,
   exportDashboardMarkdown,
@@ -69,6 +69,7 @@ export default function SettingsView() {
   const [migrationResult, setMigrationResult] = useState<string | null>(null);
   const [pulling, setPulling] = useState(false);
   const [pullResult, setPullResult] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -451,7 +452,18 @@ export default function SettingsView() {
                     </div>
                   </div>
                   <button
-                    onClick={firebaseUser ? firebaseSignOut : signInWithGoogle}
+                    onClick={async () => {
+                      try {
+                        setAuthError(null);
+                        if (firebaseUser) {
+                          await firebaseSignOut();
+                        } else {
+                          await signInWithGoogle();
+                        }
+                      } catch (e) {
+                        setAuthError(e instanceof Error ? e.message : "Erro ao autenticar");
+                      }
+                    }}
                     className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
                       firebaseUser
                         ? "text-red-400 hover:bg-red-500/10"
@@ -464,6 +476,12 @@ export default function SettingsView() {
                       <span className="flex items-center gap-1"><LogIn className="w-3 h-3" />Entrar com Google</span>
                     )}
                   </button>
+                  {authError && (
+                    <div className="mt-2 rounded-lg p-2.5 text-xs flex items-center gap-2 bg-red-500/10 border border-red-500/20 text-red-400">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>{authError}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 

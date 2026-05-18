@@ -7,7 +7,7 @@ import {
   getTodaysRecords,
   getSpentToday,
   getRecordsByType,
-} from "@/lib/storage";
+} from "@/lib/storageProvider";
 import { saveRecord } from "@/lib/storageProvider";
 
 export default function DailyReview() {

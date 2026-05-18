@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Check, Trash2, ListTodo, AlertTriangle, Target } from "lucide-react";
 import type { CortexRecord } from "@/lib/types";
-import { getRecordsByType } from "@/lib/storage";
+import { getRecordsByType } from "@/lib/storageProvider";
 import { updateRecord, deleteRecord, subscribeRecordsByType } from "@/lib/storageProvider";
 
 export default function TasksView() {
