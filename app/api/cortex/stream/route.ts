@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { mockClassify } from "../route";
 
 export const runtime = "nodejs";
 
@@ -18,10 +19,11 @@ export async function POST(req: NextRequest) {
     const encoder = new TextEncoder();
 
     if (provider === "gemini" && apiKey) {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: modelName });
+      try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: modelName });
 
-      const prompt = `
+        const prompt = `
 Você é o Aion, a IA central do sistema Cortex.
 Analise a mensagem do usuário e forneça duas partes obrigatórias na sua resposta:
 
@@ -57,50 +59,61 @@ Exemplo exato de formato de resposta:
 Mensagem do usuário: "${message.trim()}"
 `;
 
-      const responseStream = await model.generateContentStream(prompt);
+        const responseStream = await model.generateContentStream(prompt);
 
-      const customReadable = new ReadableStream({
-        async start(controller) {
-          try {
-            for await (const chunk of responseStream.stream) {
-              const text = chunk.text();
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token: text })}\n\n`));
+        const customReadable = new ReadableStream({
+          async start(controller) {
+            try {
+              for await (const chunk of responseStream.stream) {
+                const text = chunk.text();
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token: text })}\n\n`));
+              }
+              controller.close();
+            } catch (err) {
+              console.error("Stream generation error:", err);
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Erro de streaming da IA" })}\n\n`));
+              controller.close();
             }
-            controller.close();
-          } catch (err) {
-            console.error("Stream generation error:", err);
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "Erro de streaming da IA" })}\n\n`));
-            controller.close();
-          }
-        },
-      });
+          },
+        });
 
-      return new Response(customReadable, {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-        },
-      });
+        return new Response(customReadable, {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+          },
+        });
+      } catch (geminiError) {
+        console.warn("Gemini stream failed (rate limited/429/offline), falling back to offline mockClassify stream:", geminiError);
+        // Deixa seguir para o fallback de inteligência offline local mockClassify!
+      }
     }
 
-    // Fallback Mock Stream
+    // Fallback Mock Stream com Heurística Avançada Offline
     const customReadable = new ReadableStream({
       start(controller) {
-        const textResponse = "[TEXT]Entendido! Comando processado localmente no modo de simulação.[END_TEXT]";
-        const jsonResponse = `[JSON]
-{
-  "type": "unknown",
-  "title": "${message.trim()}",
-  "description": "",
-  "priority": "medium",
-  "project": null,
-  "amount": null,
-  "category": null,
-  "dueDate": null,
-  "nextAction": "Revisar comando no painel"
-}
-[END_JSON]`;
+        const result = mockClassify(message);
+        
+        let verbalConfirmation = "";
+        if (result.type === "expense") {
+          verbalConfirmation = `Registrado. Adicionei a despesa de R$ ${result.amount} na categoria de ${result.category || "geral"}.`;
+        } else if (result.type === "task") {
+          verbalConfirmation = `Entendido! Criei a tarefa "${result.title}" com prioridade ${result.priority === "high" ? "alta" : "normal"}.`;
+        } else if (result.type === "idea") {
+          verbalConfirmation = `Salvo no banco de ideias: "${result.title}".`;
+        } else if (result.type === "focus_request") {
+          verbalConfirmation = `Compreendo. Iniciei o modo de foco. Vamos fazer uma pequena ação de 5 minutos agora?`;
+        } else if (result.type === "project_note") {
+          verbalConfirmation = `Nota adicionada ao projeto ${result.project || "geral"}.`;
+        } else if (result.type === "daily_review") {
+          verbalConfirmation = `Entendido. Vamos iniciar a revisão diária agora.`;
+        } else {
+          verbalConfirmation = `Entendido! Registrei "${result.title}" no seu painel.`;
+        }
+
+        const textResponse = `[TEXT]${verbalConfirmation}[END_TEXT]`;
+        const jsonResponse = `[JSON]\n${JSON.stringify(result, null, 2)}\n[END_JSON]`;
 
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token: textResponse })}\n\n`));
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ token: jsonResponse })}\n\n`));

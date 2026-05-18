@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { CortexApiResponse, CortexRecordType, Priority } from "@/lib/types";
 
-function mockClassify(message: string): CortexApiResponse {
+export function mockClassify(message: string): CortexApiResponse {
   const lower = message.toLowerCase();
 
   const expenseKeywords = ["gastei", "paguei", "comprei", "custou", "gasto", "comprar", "custa"];
