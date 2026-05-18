@@ -43,6 +43,8 @@ export default function CommandCenter() {
 
         await audio.play();
         return;
+      } else {
+        throw new Error(`TTS API returned status ${res.status}`);
       }
     } catch (err) {
       console.warn("ElevenLabs TTS failed, falling back to local speech synthesis:", err);
