@@ -5,6 +5,7 @@ import { Wallet, Trash2, TrendingDown, Calendar } from "lucide-react";
 import type { CortexRecord } from "@/lib/types";
 import { getRecordsByType, getTotalSpent, getSpentToday } from "@/lib/storageProvider";
 import { deleteRecord, subscribeRecordsByType } from "@/lib/storageProvider";
+import { shouldShowDescription } from "@/lib/records/display";
 
 export default function FinancesView() {
   const [expenses, setExpenses] = useState<CortexRecord[]>([]);
@@ -97,6 +98,9 @@ export default function FinancesView() {
                       {expense.title}
                     </p>
                   </div>
+                  {shouldShowDescription(expense) && (
+                    <p className="text-xs text-zinc-500 mt-0.5 mb-1.5">{expense.description}</p>
+                  )}
                   <div className="flex items-center gap-2 flex-wrap">
                     {expense.category && (
                       <span className="text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">

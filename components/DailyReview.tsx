@@ -9,6 +9,7 @@ import {
   getRecordsByType,
 } from "@/lib/storageProvider";
 import { saveRecord } from "@/lib/storageProvider";
+import { shouldShowDescription } from "@/lib/records/display";
 
 export default function DailyReview() {
   const [todaysEntries, setTodaysEntries] = useState<CortexRecord[]>([]);
@@ -191,6 +192,9 @@ export default function DailyReview() {
                   </span>
                 </div>
                 <p className="text-zinc-300 text-sm">{entry.title}</p>
+                {shouldShowDescription(entry) && (
+                  <p className="text-xs text-zinc-500 mt-1">{entry.description}</p>
+                )}
               </div>
             ))}
           </div>

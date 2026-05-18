@@ -14,7 +14,7 @@ function mockClassify(message: string): CortexApiResponse {
 
   let type: CortexRecordType = "unknown";
   let title = message;
-  let description = message;
+  let description = "";
   let priority: Priority = "medium";
   let project: string | null = null;
   let amount: number | null = null;
@@ -122,7 +122,7 @@ const PROVIDERS: Record<string, (message: string, opts: { apiKey: string; baseUr
             content: `You are a classifier. Return valid JSON only with these fields:
 type (enum: task, idea, expense, project_note, daily_review, focus_request, unknown),
 title (string),
-description (string),
+description (string - MUST be empty when just repeating the original user message. Use description ONLY for additional useful details),
 priority (enum: low, medium, high),
 project (string or null),
 amount (number or null),
@@ -154,7 +154,7 @@ nextAction (string). No markdown, no code fences.`,
                 text: `Classify this message and return ONLY valid JSON with these exact fields:
 type (task, idea, expense, project_note, daily_review, focus_request, unknown)
 title (string)
-description (string)
+description (string - MUST be empty when just repeating the original user message. Use description ONLY for additional useful details)
 priority (low, medium, high)
 project (string or null)
 amount (number or null)
@@ -207,7 +207,7 @@ export async function POST(req: NextRequest) {
     const validated: CortexApiResponse = {
       type: result.type ?? "unknown",
       title: result.title ?? message.trim(),
-      description: result.description ?? message.trim(),
+      description: result.description ?? "",
       priority: ["low", "medium", "high"].includes(result.priority) ? result.priority : "medium",
       project: result.project ?? null,
       amount: typeof result.amount === "number" ? result.amount : null,

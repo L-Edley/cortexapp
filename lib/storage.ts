@@ -20,7 +20,12 @@ export function getRecords(): CortexRecord[] {
 export function saveRecord(record: CortexRecord): void {
   if (!isClient()) return;
   const records = getRecords();
-  records.unshift(record);
+  const existingIndex = records.findIndex((r) => r.id === record.id);
+  if (existingIndex >= 0) {
+    records[existingIndex] = { ...records[existingIndex], ...record };
+  } else {
+    records.unshift(record);
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
 }
 

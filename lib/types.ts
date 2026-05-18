@@ -14,7 +14,7 @@ export type CortexRecord = {
   id: string;
   type: CortexRecordType;
   title: string;
-  description: string;
+  description?: string;
   priority: Priority;
   project: string | null;
   amount: number | null;
@@ -24,12 +24,13 @@ export type CortexRecord = {
   status: RecordStatus;
   createdAt: string;
   syncedAt?: string | null;
+  rawInput?: string | null;
 };
 
 export type CortexApiResponse = {
   type: CortexRecordType;
   title: string;
-  description: string;
+  description?: string;
   priority: Priority;
   project: string | null;
   amount: number | null;

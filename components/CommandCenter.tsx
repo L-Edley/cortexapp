@@ -56,18 +56,31 @@ export default function CommandCenter() {
 
       const data: CortexApiResponse = await res.json();
 
+      const normalizedDescription =
+        data.description &&
+        data.description.trim().toLowerCase() !== data.title.trim().toLowerCase() &&
+        data.description.trim().toLowerCase() !== msg.trim().toLowerCase()
+          ? data.description
+          : "";
+
       const record: CortexRecord = {
         id: crypto.randomUUID?.() ?? Date.now().toString(),
         type: data.type,
         title: data.title,
-        description: data.description,
+        description: normalizedDescription,
+        rawInput: msg,
         priority: data.priority,
         project: data.project,
         amount: data.amount,
         category: data.category,
         dueDate: data.dueDate,
         nextAction: data.nextAction,
-        status: data.type === "task" ? "pending" : data.type === "idea" ? "archived" : "pending",
+        status:
+          data.type === "task"
+            ? "pending"
+            : data.type === "idea"
+              ? "archived"
+              : "pending",
         createdAt: new Date().toISOString(),
       };
 

@@ -5,6 +5,7 @@ import { Check, Trash2, ListTodo, AlertTriangle, Target } from "lucide-react";
 import type { CortexRecord } from "@/lib/types";
 import { getRecordsByType } from "@/lib/storageProvider";
 import { updateRecord, deleteRecord, subscribeRecordsByType } from "@/lib/storageProvider";
+import { shouldShowDescription } from "@/lib/records/display";
 
 export default function TasksView() {
   const [tasks, setTasks] = useState<CortexRecord[]>([]);
@@ -130,6 +131,9 @@ function TaskCard({
             >
               {task.title}
             </p>
+            {shouldShowDescription(task) && (
+              <p className="text-xs text-zinc-500 mt-1">{task.description}</p>
+            )}
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">

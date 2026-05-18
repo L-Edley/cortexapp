@@ -20,6 +20,7 @@ import {
   subscribeRecords,
 } from "@/lib/storageProvider";
 import type { CortexRecord } from "@/lib/types";
+import { shouldShowDescription } from "@/lib/records/display";
 
 export default function DashboardView({
   onNavigate,
@@ -146,16 +147,21 @@ export default function DashboardView({
           ) : (
             <div className="space-y-2">
               {stats.topTasks.map((t, i) => (
-                <div key={t.id} className="flex items-center gap-2">
-                  <span className="text-[10px] text-zinc-600 w-4">{i + 1}.</span>
-                  <p className="text-sm text-zinc-300 truncate flex-1">{t.title}</p>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                    t.priority === "high" ? "bg-red-500/20 text-red-400" :
-                    t.priority === "medium" ? "bg-yellow-500/20 text-yellow-400" :
-                    "bg-zinc-500/20 text-zinc-400"
-                  }`}>
-                    {t.priority === "high" ? "Alta" : t.priority === "medium" ? "Média" : "Baixa"}
-                  </span>
+                <div key={t.id} className="flex flex-col gap-0.5 border-b border-zinc-800/30 pb-1.5 last:border-0 last:pb-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-zinc-600 w-4">{i + 1}.</span>
+                    <p className="text-sm text-zinc-300 truncate flex-1">{t.title}</p>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      t.priority === "high" ? "bg-red-500/20 text-red-400" :
+                      t.priority === "medium" ? "bg-yellow-500/20 text-yellow-400" :
+                      "bg-zinc-500/20 text-zinc-400"
+                    }`}>
+                      {t.priority === "high" ? "Alta" : t.priority === "medium" ? "Média" : "Baixa"}
+                    </span>
+                  </div>
+                  {shouldShowDescription(t) && (
+                    <p className="text-xs text-zinc-500 pl-6">{t.description}</p>
+                  )}
                 </div>
               ))}
             </div>
@@ -201,26 +207,31 @@ export default function DashboardView({
         ) : (
           <div className="space-y-2">
             {stats.latest.map((entry) => (
-              <div key={entry.id} className="flex items-center gap-2">
-                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                  entry.type === "task" ? "bg-blue-500/20 text-blue-400" :
-                  entry.type === "idea" ? "bg-purple-500/20 text-purple-400" :
-                  entry.type === "expense" ? "bg-green-500/20 text-green-400" :
-                  entry.type === "focus_request" ? "bg-red-500/20 text-red-400" :
-                  "bg-zinc-500/20 text-zinc-400"
-                }`}>
-                  {entry.type === "task" ? "T" :
-                   entry.type === "idea" ? "I" :
-                   entry.type === "expense" ? "$" :
-                   entry.type === "focus_request" ? "!" : "?"}
-                </span>
-                <p className="text-sm text-zinc-300 truncate flex-1">{entry.title}</p>
-                <span className="text-[10px] text-zinc-600">
-                  {new Date(entry.createdAt).toLocaleTimeString("pt-BR", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
+              <div key={entry.id} className="flex flex-col gap-0.5 border-b border-zinc-800/30 pb-1.5 last:border-0 last:pb-0">
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                    entry.type === "task" ? "bg-blue-500/20 text-blue-400" :
+                    entry.type === "idea" ? "bg-purple-500/20 text-purple-400" :
+                    entry.type === "expense" ? "bg-green-500/20 text-green-400" :
+                    entry.type === "focus_request" ? "bg-red-500/20 text-red-400" :
+                    "bg-zinc-500/20 text-zinc-400"
+                  }`}>
+                    {entry.type === "task" ? "T" :
+                     entry.type === "idea" ? "I" :
+                     entry.type === "expense" ? "$" :
+                     entry.type === "focus_request" ? "!" : "?"}
+                  </span>
+                  <p className="text-sm text-zinc-300 truncate flex-1">{entry.title}</p>
+                  <span className="text-[10px] text-zinc-600">
+                    {new Date(entry.createdAt).toLocaleTimeString("pt-BR", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+                {shouldShowDescription(entry) && (
+                  <p className="text-xs text-zinc-500 pl-8">{entry.description}</p>
+                )}
               </div>
             ))}
           </div>

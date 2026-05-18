@@ -5,6 +5,7 @@ import { Lightbulb, Archive, ArrowUpRight, Trash2 } from "lucide-react";
 import type { CortexRecord } from "@/lib/types";
 import { getRecordsByType } from "@/lib/storageProvider";
 import { saveRecord, updateRecord, deleteRecord, subscribeRecordsByType } from "@/lib/storageProvider";
+import { shouldShowDescription } from "@/lib/records/display";
 
 export default function IdeasView() {
   const [ideas, setIdeas] = useState<CortexRecord[]>([]);
@@ -83,6 +84,9 @@ export default function IdeasView() {
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <p className="text-zinc-100 text-sm font-medium mb-1">{idea.title}</p>
+                  {shouldShowDescription(idea) && (
+                    <p className="text-zinc-400 text-xs mt-0.5 mb-1">{idea.description}</p>
+                  )}
                   {idea.nextAction && (
                     <p className="text-zinc-500 text-xs">Próxima: {idea.nextAction}</p>
                   )}
@@ -129,6 +133,9 @@ export default function IdeasView() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <p className="text-zinc-400 text-sm">{idea.title}</p>
+                      {shouldShowDescription(idea) && (
+                        <p className="text-zinc-500 text-xs mt-0.5">{idea.description}</p>
+                      )}
                     </div>
                     <button
                       onClick={() => handleDelete(idea.id)}
