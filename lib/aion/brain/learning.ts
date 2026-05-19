@@ -1,5 +1,5 @@
 import type { AionBrainItem, AionBrainItemType } from "./types";
-import { getBrainStore, generateId } from "./brainStore";
+import { getBrainDB, isBrainAvailable, generateId } from "./brainStore";
 
 const DECISION_PATTERNS =
   /(decidi|vou|vamos|melhor|escolhi|optar|definir|decidido|decidimos|decidiram)/i;
@@ -11,6 +11,10 @@ const RECURRENT_PATTERNS =
   /(sempre|nunca|toda|todo|frequentemente|geralmente|normalmente|costumo|rotina|habitualmente)/i;
 const PATTERN_PATTERNS =
   /(percebi|notei|reparei|padrão|comportamento|habito|costume|repetido)/i;
+const PROJECT_PATTERNS =
+  /(cortex|aion|projeto|app|sistema|arquitetura|estrutura|módulo|modulo|componente|lib|api|rota|provider|store|banco|db|dados)/i;
+const PREFERENCE_PATTERNS =
+  /(prefiro|gosto|quero|queria|gostaria|melhor para mim|meu estilo|jeito|minha forma)/i;
 
 const STOP_WORDS = new Set([
   "para", "como", "que", "com", "dos", "das", "uma", "mas", "por", "mais",
@@ -19,6 +23,12 @@ const STOP_WORDS = new Set([
   "muito", "pouco", "voce", "seu", "sua", "seus", "suas",
   "pode", "podem", "ser", "estar", "ficar", "ter", "haver", "fazer",
 ]);
+
+const SENSITIVE_PATTERNS =
+  /(senha|password|token|api_key|secret|credential|cartão|cvv|cpf|rg|documento|credencial|sigilo|confidencial)/i;
+
+const PERSONAL_SENSITIVE =
+  /(médico|medico|diagnóstico|diagnostico|sintoma|doença|doenca|cirurgia|exame|receita|sexual|sexo|intimo|advogado|processo judicial|divida|dívida|salário|salario|renda|banco|conta bancária|cartão de crédito)/i;
 
 function extractTags(text: string): string[] {
   const words = text
@@ -30,41 +40,64 @@ function extractTags(text: string): string[] {
   return [...new Set(words.filter((w) => !STOP_WORDS.has(w)))].slice(0, 6);
 }
 
-function hasSensitiveContent(text: string): boolean {
-  return /(senha|password|token|api_key|secret|credential|cartão|cvv|cpf|rg|documento)/i.test(
-    text
-  );
+function shouldNotSave(message: string, response: string): boolean {
+  const combined = `${message} ${response}`;
+  if (SENSITIVE_PATTERNS.test(combined)) return true;
+  if (PERSONAL_SENSITIVE.test(combined)) return true;
+  return false;
 }
 
 export async function learnFromInteraction(
   message: string,
   response: string,
-  action: string
+  options?: {
+    action?: string;
+    confidence?: number;
+    providerUsed?: string;
+  }
 ): Promise<AionBrainItem | null> {
+  if (!isBrainAvailable()) return null;
+
   if (!message || message.trim().length < 8) return null;
   if (!response || response.trim().length < 8) return null;
-  if (hasSensitiveContent(message) || hasSensitiveContent(response)) return null;
 
-  if (action === "create_record") return null;
+  if (shouldNotSave(message, response)) return null;
 
-  if (action === "none" && response.length < 20) return null;
+  if (options?.action === "create_record") return null;
+
+  if (options?.confidence !== undefined && options.confidence < 0.65) return null;
+
+  if ((!options?.action || options.action === "none") && response.length < 20) return null;
 
   const isDecision = DECISION_PATTERNS.test(message);
   const isProcedure = PROCEDURE_PATTERNS.test(message);
   const isResearch = RESEARCH_PATTERNS.test(message);
   const isRecurrent = RECURRENT_PATTERNS.test(message);
   const isPattern = PATTERN_PATTERNS.test(message);
+  const isProject = PROJECT_PATTERNS.test(message);
+  const isPreference = PREFERENCE_PATTERNS.test(message);
 
-  if (!isDecision && !isProcedure && !isResearch && !isRecurrent && !isPattern) {
+  if (
+    !isDecision &&
+    !isProcedure &&
+    !isResearch &&
+    !isRecurrent &&
+    !isPattern &&
+    !isProject &&
+    !isPreference
+  ) {
     return null;
   }
 
   let type: AionBrainItemType;
+
   if (isDecision) type = "decision";
   else if (isProcedure) type = "procedure";
   else if (isResearch) type = "research";
   else if (isPattern) type = "pattern";
-  else type = "user_preference";
+  else if (isPreference) type = "user_preference";
+  else if (isProject) type = "project_context";
+  else type = "pattern";
 
   const tags = extractTags(message);
   let expiresAt: string | undefined;
@@ -88,10 +121,14 @@ export async function learnFromInteraction(
     expiresAt,
   };
 
-  const store = getBrainStore();
-  await store.records.add(item);
+  const db = await getBrainDB();
+  if (!db) return null;
 
-  await store.knowledge.add({ ...item, id: generateId() });
-
-  return item;
+  try {
+    await db.table("knowledge").put(item);
+    return item;
+  } catch (err) {
+    console.warn("[BRAIN] learnFromInteraction erro ao salvar:", err);
+    return null;
+  }
 }

@@ -22,27 +22,17 @@ export type AionBrainItem = {
   expiresAt?: string;
 };
 
-export type BrainDebugInfo = {
-  route: "local" | "brain" | "api" | "fallback";
-  providerUsed: string;
-  brainItemsUsed: number;
-  learnedNewItem: boolean;
+export type AionBrainScoredItem = AionBrainItem & {
+  relevanceScore: number;
 };
 
-export type BrainMemoryEntry = {
-  id: string;
-  pattern: string;
-  context: string;
-  frequency: number;
-  lastSeen: string;
-  createdAt: string;
-};
-
-export type SearchCacheEntry = {
+export type AionSearchCacheItem = {
   id: string;
   query: string;
-  results: { title: string; url: string; snippet?: string }[];
-  cachedAt: string;
+  response: string;
+  tags: string[];
+  createdAt: string;
+  expiresAt: string;
 };
 
 export type ConversationEntry = {

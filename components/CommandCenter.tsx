@@ -3,6 +3,9 @@
 import { useState, useRef, useCallback } from "react";
 import type { CortexRecord } from "@/lib/types";
 import { saveRecord } from "@/lib/storageProvider";
+import { retrieveRelevantBrainContext, prepareBrainContextForApi } from "@/lib/aion/brain/retrieval";
+import type { SafeBrainItem } from "@/lib/aion/brain/retrieval";
+import { learnFromInteraction } from "@/lib/aion/brain/learning";
 import VoiceCenter from "@/components/VoiceCenter";
 
 export default function CommandCenter() {
@@ -99,10 +102,21 @@ export default function CommandCenter() {
 
     try {
       if (!text) setMessage("");
+
+      let brainContextFromClient: SafeBrainItem[] | undefined;
+      try {
+        const rawContext = await retrieveRelevantBrainContext(msg);
+        brainContextFromClient = rawContext.length > 0
+          ? prepareBrainContextForApi(rawContext)
+          : undefined;
+      } catch {
+        brainContextFromClient = undefined;
+      }
+
       const response = await fetch("/api/aion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: msg }),
+        body: JSON.stringify({ message: msg, brainContextFromClient }),
       });
 
       if (!response.ok) {
@@ -110,7 +124,7 @@ export default function CommandCenter() {
       }
 
       const data = await response.json();
-      const { reply, voiceReply, action, record: recordData, sources: responseSources, suggestion: sug, followUpQuestion, tips: tipList } = data;
+      const { reply, voiceReply, action, record: recordData, sources: responseSources, suggestion: sug, followUpQuestion, tips: tipList, learningCandidate } = data;
 
       const displayText = reply || "PROCESSADO.";
       setAiResponse(displayText.toUpperCase());
@@ -152,6 +166,25 @@ export default function CommandCenter() {
         };
 
         await saveRecord(record);
+      }
+
+      if (learningCandidate?.shouldLearn) {
+        try {
+          const saved = await learnFromInteraction(
+            learningCandidate.message,
+            learningCandidate.response,
+            {
+              action: learningCandidate.action,
+              confidence: learningCandidate.confidence,
+              providerUsed: learningCandidate.providerUsed,
+            }
+          );
+          if (saved) {
+            console.log("[AION] Aprendizado salvo no IndexedDB:", saved.id);
+          }
+        } catch (err) {
+          console.warn("[AION] Falha ao salvar aprendizado no client:", err);
+        }
       }
     } catch {
       setAiResponse("FALHA AO PROCESSAR COMANDO. TENTE NOVAMENTE.");

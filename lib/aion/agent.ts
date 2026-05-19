@@ -1,4 +1,5 @@
 import type { CortexRecord } from "@/lib/types";
+import type { AionBrainItem } from "@/lib/aion/brain/types";
 import type {
   AionResponse,
   AionAction,
@@ -6,6 +7,7 @@ import type {
   AionSource,
   AionFallbackReason,
   RouteType,
+  LearningCandidate,
 } from "./types";
 import { getSystemPrompt } from "./systemPrompt";
 import { searchWeb, parseRecordFromDecision, getMemory } from "./tools";
@@ -13,7 +15,7 @@ import { getOrderedProviders } from "@/lib/ai";
 import type { ProviderEntry } from "@/lib/ai";
 import { resolveRelativeDatePtBR } from "./dateResolver";
 import { smartRouter, offlineFallbackResponse } from "./router";
-import { retrieveRelevantBrainContext, answerFromBrain, learnFromInteraction, getBrainMemoryTracker } from "./brain";
+import { retrieveRelevantBrainContext, answerFromBrain } from "./brain";
 
 const VALID_ACTIONS: AionAction[] = [
   "none",
@@ -23,6 +25,28 @@ const VALID_ACTIONS: AionAction[] = [
   "suggest_next_step",
   "read_dashboard",
 ];
+
+const LEARN_PATTERNS =
+  /(decidi|vou|vamos|como|passo|forma|maneira|pesquisar|buscar|saber|descobrir|sempre|nunca|percebi|notei|padrão|comportamento|habito|cortex|aion|projeto|prefiro|gosto|queria|gostaria)/i;
+
+const SENSITIVE =
+  /(senha|password|token|api_key|secret|credential|cartão|cvv|cpf|rg|documento)/i;
+
+function shouldLearnFromInteraction(
+  message: string,
+  response: string,
+  action?: string,
+  confidence?: number
+): boolean {
+  if (!message || message.trim().length < 8) return false;
+  if (!response || response.trim().length < 8) return false;
+  if (action === "create_record") return false;
+  if (confidence !== undefined && confidence < 0.65) return false;
+  if ((!action || action === "none") && response.length < 20) return false;
+  if (!LEARN_PATTERNS.test(message)) return false;
+  if (SENSITIVE.test(message) || SENSITIVE.test(response)) return false;
+  return true;
+}
 
 function stripMarkdown(text: string): string {
   return text
@@ -428,8 +452,9 @@ export async function runAgent(params: {
   message: string;
   recentRecords?: CortexRecord[];
   currentView?: string;
+  brainContextFromClient?: Partial<AionBrainItem>[];
 }): Promise<AionResponse> {
-  const { message, recentRecords, currentView } = params;
+  const { message, recentRecords, currentView, brainContextFromClient } = params;
 
   console.log("[AION] ===== NOVA REQUISIÇÃO =====");
   console.log("[AION] mensagem:", message);
@@ -470,30 +495,31 @@ export async function runAgent(params: {
     return localResponse;
   }
 
-  const brainContext = await retrieveRelevantBrainContext(message);
+  const brainContext: AionBrainItem[] = (brainContextFromClient as AionBrainItem[] | undefined) ?? await retrieveRelevantBrainContext(message);
   const brainAnswer = await answerFromBrain(message, brainContext);
 
-  if (brainAnswer.answer && brainAnswer.confidence >= 0.7) {
+  if (brainAnswer !== null) {
     const brainResponse: AionResponse = {
-      reply: brainAnswer.answer,
-      voiceReply: brainAnswer.answer.split(/[.!?]/)[0] + ".",
+      reply: brainAnswer,
+      voiceReply: brainAnswer.split(/[.!?]/)[0] + ".",
       action: "none",
       record: null,
-      confidence: brainAnswer.confidence,
+      confidence: brainContext.reduce((s, i) => s + i.confidence, 0) / brainContext.length,
       fallbackUsed: false,
       debug: {
         route: "brain",
         provider: "aion-brain",
-        providerUsed: "none",
+        providerUsed: "aion-brain",
         model: "none",
         fallbackUsed: false,
-        brainItemsUsed: brainAnswer.items.length,
+        brainItemsUsed: brainContext,
+        brainItemsCount: brainContext.length,
         learnedNewItem: false,
       },
     };
-    memory.addMessage({ role: "assistant", content: brainAnswer.answer });
+    memory.addMessage({ role: "assistant", content: brainAnswer });
     console.log("[AION] route: brain");
-    console.log("[AION] brainItemsUsed:", brainAnswer.items.length);
+    console.log("[AION] brainItemsUsed:", brainContext.length);
     return brainResponse;
   }
 
@@ -527,19 +553,31 @@ export async function runAgent(params: {
       model: process.env.AI_MODEL || "n/a",
       fallbackUsed: true,
       fallbackReason: reason || "all_providers_failed",
-      brainItemsUsed: brainContext?.length || 0,
+      brainItemsUsed: brainContext.length > 0 ? brainContext : undefined,
+      brainItemsCount: brainContext.length,
       learnedNewItem: false,
     };
     memory.addMessage({ role: "assistant", content: fb.reply });
     return fb;
   }
 
-  const learnedItem = await learnFromInteraction(
+  const shouldLearn = shouldLearnFromInteraction(
     message,
     decision.reply,
-    decision.action
+    decision.action,
+    decision.confidence
   );
-  await getBrainMemoryTracker().trackInteraction(message, decision.reply);
+
+  const learningCandidate: LearningCandidate | undefined = shouldLearn
+    ? {
+        shouldLearn: true,
+        message,
+        response: decision.reply,
+        action: decision.action,
+        confidence: decision.confidence,
+        providerUsed,
+      }
+    : undefined;
 
   const route: RouteType = "api";
 
@@ -547,6 +585,7 @@ export async function runAgent(params: {
   console.log("[AION] action:", decision.action);
   console.log("[AION] confidence:", decision.confidence);
   console.log("[AION] providerUsed:", providerUsed);
+  console.log("[AION] learningCandidate:", shouldLearn);
 
   const action: AionAction = decision.action || "none";
   const confidence = decision.confidence ?? 0.5;
@@ -557,8 +596,9 @@ export async function runAgent(params: {
     providerUsed: providerUsed || process.env.AI_PROVIDER || "n/a",
     model: process.env.AI_MODEL || "n/a",
     fallbackUsed: false,
-    brainItemsUsed: brainContext.length,
-    learnedNewItem: !!learnedItem,
+    brainItemsUsed: brainContext.length > 0 ? brainContext : undefined,
+    brainItemsCount: brainContext.length,
+    learnedNewItem: false,
   };
 
   if (action === "web_search" && decision.searchQuery) {
@@ -588,6 +628,7 @@ export async function runAgent(params: {
         tips: decision.tips || undefined,
         confidence,
         fallbackUsed: false,
+        learningCandidate,
         debug: debugBase,
       };
 
@@ -602,6 +643,7 @@ export async function runAgent(params: {
         record: null,
         confidence: 0.3,
         fallbackUsed: true,
+        learningCandidate: undefined,
         debug: {
           ...debugBase,
           fallbackUsed: true,
@@ -634,6 +676,7 @@ export async function runAgent(params: {
     tips: decision.tips || undefined,
     confidence,
     fallbackUsed: false,
+    learningCandidate,
     debug: debugBase,
   };
 

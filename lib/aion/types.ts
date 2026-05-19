@@ -1,4 +1,5 @@
 import type { CortexApiResponse, CortexRecord } from "@/lib/types";
+import type { AionBrainItem } from "./brain/types";
 
 export type AionAction =
   | "none"
@@ -38,6 +39,15 @@ export type AionFallbackReason =
   | "nvidia_server_error"
   | "unknown";
 
+export type LearningCandidate = {
+  shouldLearn: boolean;
+  message: string;
+  response: string;
+  action?: string;
+  confidence: number;
+  providerUsed?: string;
+};
+
 export type AionSource = {
   title: string;
   url: string;
@@ -48,6 +58,7 @@ export type AionRequest = {
   currentView?: string;
   recentRecords?: CortexRecord[];
   voiceMode?: AionVoiceMode;
+  brainContextFromClient?: Partial<AionBrainItem>[];
 };
 
 export type AionResponse = {
@@ -61,6 +72,7 @@ export type AionResponse = {
   tips?: string[];
   confidence: number;
   fallbackUsed: boolean;
+  learningCandidate?: LearningCandidate;
   debug?: {
     route: RouteType;
     provider: string;
@@ -68,7 +80,8 @@ export type AionResponse = {
     model: string;
     fallbackUsed: boolean;
     fallbackReason?: AionFallbackReason;
-    brainItemsUsed?: number;
+    brainItemsUsed?: AionBrainItem[];
+    brainItemsCount?: number;
     learnedNewItem?: boolean;
   };
 };
