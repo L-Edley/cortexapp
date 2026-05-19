@@ -129,6 +129,35 @@ function dateQueryResponse(): AionResponse {
   };
 }
 
+function formatDatePtBR(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function cleanTaskTitle(message: string): string {
+  const PREFIXES = [
+    /^me\s+lembra\s+de\s+/i,
+    /^me\s+lembre\s+de\s+/i,
+    /^lembrete\s+/i,
+    /^tenho\s+que\s+/i,
+    /^preciso\s+/i,
+    /^não\s+esquecer\s+de\s+/i,
+    /^nao\s+esquecer\s+de\s+/i,
+  ];
+
+  const DATE_WORDS =
+    /\b(hoje|amanhã|amanha|depois\s+de\s+amanhã|depois\s+de\s+amanha|segunda|terça|terca|quarta|quinta|sexta|sábado|sabado|domingo|semana\s+que\s+vem|mês\s+que\s+vem|mes\s+que\s+vem)\b/gi;
+
+  let title = message;
+  for (const prefix of PREFIXES) {
+    title = title.replace(prefix, "");
+  }
+  title = title.replace(DATE_WORDS, "").trim();
+  title = title.replace(/\b(a|o|as|os)\b\s*/gi, "").trim();
+  title = title.charAt(0).toUpperCase() + title.slice(1);
+  return title || message;
+}
+
 function expenseResponse(message: string): AionResponse {
   const lower = message.toLowerCase();
   let amount: number | null = null;
@@ -173,30 +202,31 @@ function expenseResponse(message: string): AionResponse {
 
 function taskResponse(message: string): AionResponse {
   const lower = message.toLowerCase();
-  const urgentWords = ["urgente", "agora", "hoje", "pra ontem", "amanhã", "imediato"];
+  const urgentWords = ["urgente", "imediatamente", "atrasado", "vencido", "pra ontem"];
   const isUrgent = urgentWords.some((w) => lower.includes(w));
   const priority: Priority = isUrgent ? "high" : "medium";
 
-  const title = message
-    .replace(/^(me\s+)?lembr(a|e)(\s+de)?\s+/i, "")
-    .replace(/^(preciso|tenho\s+que|precisa|vou\s+precisar)\s+/i, "")
-    .replace(/^(lembrar|fazer|providenciar)\s+(de\s+)?/i, "")
-    .trim();
-
   const dueDate = resolveRelativeDatePtBR(message);
+  const title = cleanTaskTitle(message);
 
-  const record = makeRecord("task", title || message, message, priority, {
+  const record = makeRecord("task", title, message, priority, {
     dueDate: dueDate || null,
-    nextAction: isUrgent ? "Executar agora" : "Agendar execução",
+    nextAction: title,
   });
 
-  const dateStr = dueDate
-    ? ` para ${new Date(dueDate).toLocaleDateString("pt-BR")}`
-    : "";
+  const displayDate = record.dueDate ? formatDatePtBR(record.dueDate) : null;
+
+  const reply = displayDate
+    ? `Tarefa registrada para ${displayDate}: "${record.title}".${isUrgent ? " Marquei como urgente!" : ""} Quer definir um projeto ou algo mais?`
+    : `Tarefa registrada: "${record.title}". Quer definir um prazo ou projeto?`;
+
+  const voiceReply = displayDate
+    ? `Tarefa registrada para ${displayDate}.${isUrgent ? " Urgente!" : ""}`
+    : "Tarefa registrada.";
 
   return {
-    reply: `Tarefa registrada${dateStr}: "${title || message}".${isUrgent ? " Marquei como urgente!" : ""} Quer definir um projeto ou algo mais?`,
-    voiceReply: `Tarefa registrada${dateStr}.${isUrgent ? " Urgente!" : ""}`,
+    reply,
+    voiceReply,
     action: "create_record",
     record,
     confidence: 0.9,

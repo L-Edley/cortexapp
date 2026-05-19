@@ -6,6 +6,7 @@ import { saveRecord } from "@/lib/storageProvider";
 import { retrieveRelevantBrainContext, prepareBrainContextForApi } from "@/lib/aion/brain/retrieval";
 import type { SafeBrainItem } from "@/lib/aion/brain/retrieval";
 import { learnFromInteraction } from "@/lib/aion/brain/learning";
+import type { RouteType } from "@/lib/aion/types";
 import VoiceCenter from "@/components/VoiceCenter";
 
 export default function CommandCenter() {
@@ -113,10 +114,18 @@ export default function CommandCenter() {
         brainContextFromClient = undefined;
       }
 
+      const payload: Record<string, unknown> = {
+        message: msg,
+        voiceMode: "assistant",
+      };
+      if (brainContextFromClient) {
+        payload.brainContextFromClient = brainContextFromClient;
+      }
+
       const response = await fetch("/api/aion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: msg, brainContextFromClient }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -124,7 +133,20 @@ export default function CommandCenter() {
       }
 
       const data = await response.json();
-      const { reply, voiceReply, action, record: recordData, sources: responseSources, suggestion: sug, followUpQuestion, tips: tipList, learningCandidate } = data;
+      const { reply, voiceReply, action, record: recordData, sources: responseSources, suggestion: sug, followUpQuestion, tips: tipList, learningCandidate, debug } = data;
+
+      if (process.env.NODE_ENV === "development") {
+        const route = debug?.route as RouteType | undefined;
+        if (route === "brain") {
+          console.log("[AION] Rota: brain | Itens usados:", debug?.brainItemsCount);
+        } else if (route === "api") {
+          console.log("[AION] Rota: api | Provider:", debug?.providerUsed);
+        } else if (route === "local") {
+          console.log("[AION] Rota: local | Sem consumo de API");
+        } else if (route === "fallback") {
+          console.log("[AION] Rota: fallback | Motivo:", debug?.fallbackReason);
+        }
+      }
 
       const displayText = reply || "PROCESSADO.";
       setAiResponse(displayText.toUpperCase());
@@ -136,9 +158,8 @@ export default function CommandCenter() {
       if (followUpQuestion) setFollowUp(followUpQuestion);
       if (tipList && tipList.length > 0) setTips(tipList);
 
-      const ttsText = voiceReply || reply || "";
-      if (ttsText) {
-        enqueueSpeech(ttsText);
+      if (voiceReply) {
+        enqueueSpeech(voiceReply);
       }
 
       if (action === "create_record" && recordData) {
