@@ -1,5 +1,6 @@
 import type { AionDatabaseAdapter, SyncRecord, SyncSummary } from "./types";
 import { detectUnsyncedNotes } from "./detect";
+import { indexRecordInBackground } from "@/lib/aion/vector/background";
 
 // ---------------------------------------------------------------------------
 // Sync de notas Obsidian não processadas para o banco do Aion.
@@ -21,6 +22,7 @@ export async function syncObsidianToAion(
     try {
       await adapter.upsert(record);
       await adapter.markSynced(record.id);
+      indexRecordInBackground(record);
       summary.synced++;
     } catch (e) {
       summary.failed++;

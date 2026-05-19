@@ -1,5 +1,7 @@
 import type { AionBrainItem, AionBrainItemType, AionBrainScoredItem } from "./types";
+import type { VectorSearchResult } from "@/lib/aion/vector/types";
 import { getBrainDB, isBrainAvailable } from "./brainStore";
+import { semanticSearch } from "@/lib/aion/vector/semanticIndex";
 
 const STOP_WORDS = new Set([
   "para", "como", "que", "com", "dos", "das", "uma", "mas", "por", "mais",
@@ -12,6 +14,10 @@ const STOP_WORDS = new Set([
   "dizer", "saber", "ficou", "tem", "temos", "era", "foram",
 ]);
 
+const RRF_K = 60;
+const KEYWORD_WEIGHT = 0.55;
+const SEMANTIC_WEIGHT = 0.35;
+
 function normalize(text: string): string {
   return text
     .normalize("NFD")
@@ -23,6 +29,10 @@ function normalize(text: string): string {
 function extractKeywords(text: string): string[] {
   const tokens = normalize(text).split(/\s+/).filter((t) => t.length > 2);
   return [...new Set(tokens.filter((t) => !STOP_WORDS.has(t)))];
+}
+
+function rrfScore(rank: number): number {
+  return 1 / (RRF_K + rank);
 }
 
 export async function retrieveRelevantBrainContext(
@@ -45,12 +55,17 @@ export async function retrieveRelevantBrainContext(
 
     if (allItems.length === 0) return [];
 
-    const scored: AionBrainScoredItem[] = allItems
-      .map((item) => {
-        if (item.expiresAt && new Date(item.expiresAt).getTime() < now) {
-          return null;
-        }
+    const validItems = allItems.filter((item) => {
+      if (item.expiresAt && new Date(item.expiresAt).getTime() < now) {
+        return false;
+      }
+      return true;
+    });
 
+    if (validItems.length === 0) return [];
+
+    const keywordScored: AionBrainScoredItem[] = validItems
+      .map((item) => {
         const searchText = normalize(
           `${item.title} ${item.content} ${item.tags.join(" ")}`
         );
@@ -89,13 +104,51 @@ export async function retrieveRelevantBrainContext(
           relevanceScore: Math.round(score * 100) / 100,
         };
       })
-      .filter((entry): entry is AionBrainScoredItem => entry !== null)
-      .filter(({ relevanceScore }) => relevanceScore > 0.3)
-      .sort((a, b) => b.relevanceScore - a.relevanceScore)
-      .slice(0, 5);
+      .filter(({ relevanceScore }) => relevanceScore > 0.3);
 
-    for (const item of scored) {
+    keywordScored.sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+    const seenIds = new Set(keywordScored.map((i) => i.id));
+
+    let semanticResults: VectorSearchResult[] = [];
+    try {
+      semanticResults = await semanticSearch(message, { topK: 10, threshold: 0.3 });
+    } catch {
+      semanticResults = [];
+    }
+
+    const combined: AionBrainScoredItem[] = [];
+
+    for (let i = 0; i < keywordScored.length; i++) {
+      const kwRank = i;
+      const kwScore = rrfScore(kwRank) * KEYWORD_WEIGHT;
+      combined.push({
+        ...keywordScored[i],
+        relevanceScore: kwScore,
+      });
+    }
+
+    for (const sem of semanticResults) {
+      if (seenIds.has(sem.sourceId)) continue;
+
+      const item = validItems.find((v) => v.id === sem.sourceId);
+      if (!item) continue;
+
+      const semRank = combined.length;
+      const semScore = rrfScore(semRank) * SEMANTIC_WEIGHT;
+      combined.push({
+        ...item,
+        relevanceScore: Math.round(semScore * 100) / 100,
+      });
+      seenIds.add(item.id);
+    }
+
+    combined.sort((a, b) => b.relevanceScore - a.relevanceScore);
+    const topResults = combined.slice(0, 5);
+
+    for (const item of topResults) {
       item.lastUsedAt = new Date().toISOString();
+      item.relevanceScore = Math.round(item.relevanceScore * 100) / 100;
       try {
         const table = db.table("memories");
         await table.put(item);
@@ -108,7 +161,7 @@ export async function retrieveRelevantBrainContext(
       }
     }
 
-    return scored;
+    return topResults;
   } catch {
     return [];
   }

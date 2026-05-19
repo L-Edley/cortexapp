@@ -32,6 +32,16 @@ export async function getBrainDB(): Promise<import("dexie").default | null> {
       settings: "id",
     });
 
+    _db.version(2).stores({
+      records: "id, type, createdAt, updatedAt, status, priority",
+      memories: "id, type, source, confidence, createdAt, updatedAt, expiresAt, *tags",
+      knowledge: "id, type, source, confidence, createdAt, updatedAt, expiresAt, *tags",
+      searchCache: "id, query, createdAt, expiresAt",
+      conversations: "id, createdAt, updatedAt",
+      settings: "id",
+      vectors: "id, type, sourceId, sourceType, createdAt, updatedAt, *tags",
+    });
+
     return _db;
   } catch (err) {
     console.warn("[BRAIN] Falha ao inicializar Dexie:", err);

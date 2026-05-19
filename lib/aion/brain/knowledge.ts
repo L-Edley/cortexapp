@@ -1,6 +1,15 @@
 import type { AionBrainItem } from "./types";
 import { retrieveRelevantBrainContext } from "./retrieval";
 import { getBrainDB, isBrainAvailable, generateId } from "./brainStore";
+import { indexBrainItemInBackground, deleteVectorInBackground } from "@/lib/aion/vector/background";
+
+const SENSITIVE_TAGS = new Set([
+  "sensitive", "private", "medical", "legal", "financial_personal",
+]);
+
+function hasSensitiveTags(item: AionBrainItem): boolean {
+  return item.tags.some((t) => SENSITIVE_TAGS.has(t));
+}
 
 export async function answerFromBrain(
   message: string,
@@ -59,6 +68,9 @@ export async function saveKnowledge(
 
   try {
     await db.table("knowledge").put(entry);
+    if (!hasSensitiveTags(entry)) {
+      indexBrainItemInBackground(entry);
+    }
     return entry;
   } catch {
     return null;
@@ -84,6 +96,7 @@ export async function deleteKnowledge(id: string): Promise<boolean> {
 
   try {
     await db.table("knowledge").delete(id);
+    deleteVectorInBackground(id);
     return true;
   } catch {
     return false;
@@ -112,6 +125,9 @@ export async function updateKnowledge(
     };
 
     await db.table("knowledge").put(updated);
+    if (!hasSensitiveTags(updated)) {
+      indexBrainItemInBackground(updated);
+    }
     return updated;
   } catch {
     return null;

@@ -6,6 +6,10 @@ import {
   updateRecordInObsidian,
   deleteRecordFromObsidian,
 } from "@/lib/obsidian-adapter";
+import {
+  indexRecordInBackground,
+  deleteVectorInBackground,
+} from "@/lib/aion/vector/background";
 
 // ============================================
 // STORAGE PROVIDER — Zero-Cost Architecture
@@ -51,6 +55,8 @@ export async function saveRecord(record: CortexRecord): Promise<void> {
   } catch {
     // Obsidian offline — keep local copy
   }
+
+  indexRecordInBackground(record);
 }
 
 export async function updateRecord(
@@ -73,6 +79,9 @@ export async function updateRecord(
   } catch {
     // offline
   }
+
+  const patched = local.getRecordsById(id);
+  if (patched) indexRecordInBackground(patched);
 }
 
 export async function deleteRecord(id: string): Promise<void> {
@@ -92,6 +101,8 @@ export async function deleteRecord(id: string): Promise<void> {
   } catch {
     // offline
   }
+
+  deleteVectorInBackground(id);
 }
 
 export function getRecords(): CortexRecord[] {

@@ -1,5 +1,6 @@
 import type { AionBrainItem, AionBrainItemType } from "./types";
 import { getBrainDB, isBrainAvailable, generateId } from "./brainStore";
+import { indexBrainItemInBackground } from "@/lib/aion/vector/background";
 
 const DECISION_PATTERNS =
   /(decidi|vou|vamos|melhor|escolhi|optar|definir|decidido|decidimos|decidiram)/i;
@@ -126,6 +127,7 @@ export async function learnFromInteraction(
 
   try {
     await db.table("knowledge").put(item);
+    indexBrainItemInBackground(item);
     return item;
   } catch (err) {
     console.warn("[BRAIN] learnFromInteraction erro ao salvar:", err);
