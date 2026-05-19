@@ -1,8 +1,11 @@
 import type { CortexRecord, CortexRecordType } from "./types";
 import * as local from "./storage";
 import * as firebase from "./firebase/records";
-import * as obsidian from "./obsidian/vaultStorage";
-import { saveRecordToObsidian } from "@/lib/obsidian-adapter";
+import {
+  saveRecordToObsidian,
+  updateRecordInObsidian,
+  deleteRecordFromObsidian,
+} from "@/lib/obsidian-adapter";
 
 // ============================================
 // STORAGE PROVIDER — Zero-Cost Architecture
@@ -41,19 +44,12 @@ export async function saveRecord(record: CortexRecord): Promise<void> {
       // Firebase offline — keep local copy
     }
   }
-  if (mode === "hybrid") {
-    try {
-      await obsidian.saveRecord(record);
-    } catch {
-      // Obsidian offline — keep local copy
-    }
-  }
-  // Gera nota .md no vault via adapter (frontmatter YAML + corpo legível)
+  // Gera nota .md no vault Obsidian (via adapter oficial)
   // Falha silenciosa se Obsidian estiver indisponível
   try {
     await saveRecordToObsidian(record);
   } catch {
-    // Obsidian adapter offline — keep local copy
+    // Obsidian offline — keep local copy
   }
 }
 
@@ -70,13 +66,12 @@ export async function updateRecord(
       // offline
     }
   }
-  if (mode === "hybrid") {
-    try {
-      const updated = { ...local.getRecordsById(id)!, ...patch };
-      await obsidian.updateRecord(id, updated);
-    } catch {
-      // offline
-    }
+  // Atualiza nota no vault Obsidian (via adapter oficial)
+  try {
+    const updated = { ...local.getRecordsById(id)!, ...patch };
+    await updateRecordInObsidian(updated);
+  } catch {
+    // offline
   }
 }
 
@@ -90,12 +85,12 @@ export async function deleteRecord(id: string): Promise<void> {
       // offline
     }
   }
-  if (mode === "hybrid") {
-    try {
-      await obsidian.deleteRecord(id);
-    } catch {
-      // offline
-    }
+  // Remove nota no vault Obsidian (via adapter oficial)
+  try {
+    const record = local.getRecordsById(id);
+    if (record) await deleteRecordFromObsidian(record);
+  } catch {
+    // offline
   }
 }
 

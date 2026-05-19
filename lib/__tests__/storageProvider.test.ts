@@ -1,18 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { CortexRecord } from "@/lib/types";
 
-const { mockSaveRecord, mockFirebaseSave, mockObsidianSave, mockAdapterSave } =
-  vi.hoisted(() => ({
-    mockSaveRecord: vi.fn(),
-    mockFirebaseSave: vi.fn(),
-    mockObsidianSave: vi.fn(),
-    mockAdapterSave: vi.fn(),
-  }));
+const {
+  mockSaveRecord,
+  mockFirebaseSave,
+  mockAdapterSave,
+  mockAdapterUpdate,
+  mockAdapterDelete,
+  mockGetRecordsById,
+} = vi.hoisted(() => ({
+  mockSaveRecord: vi.fn(),
+  mockFirebaseSave: vi.fn(),
+  mockAdapterSave: vi.fn(),
+  mockAdapterUpdate: vi.fn(),
+  mockAdapterDelete: vi.fn(),
+  mockGetRecordsById: vi.fn(),
+}));
 
 vi.mock("@/lib/storage", () => ({
   saveRecord: mockSaveRecord,
   getRecords: vi.fn().mockReturnValue([]),
-  getRecordsById: vi.fn(),
+  getRecordsById: mockGetRecordsById,
   updateRecord: vi.fn(),
   deleteRecord: vi.fn(),
   clearRecords: vi.fn(),
@@ -38,15 +46,10 @@ vi.mock("@/lib/firebase/records", () => ({
   migrateFromLocal: vi.fn().mockResolvedValue({ success: 0, failed: 0 }),
 }));
 
-vi.mock("@/lib/obsidian/vaultStorage", () => ({
-  saveRecord: mockObsidianSave,
-  updateRecord: vi.fn(),
-  deleteRecord: vi.fn(),
-  syncLocalRecordsToObsidian: vi.fn(),
-}));
-
 vi.mock("@/lib/obsidian-adapter", () => ({
   saveRecordToObsidian: mockAdapterSave,
+  updateRecordInObsidian: mockAdapterUpdate,
+  deleteRecordFromObsidian: mockAdapterDelete,
   isObsidianAvailable: vi.fn(),
   recordToObsidianNote: vi.fn(),
   buildFrontmatter: vi.fn(),
@@ -58,6 +61,7 @@ vi.mock("@/lib/obsidian-adapter", () => ({
   buildNoteFrontmatter: vi.fn(),
   buildNoteBody: vi.fn(),
   cortexTypeToNoteType: vi.fn(),
+  getObsidianPath: vi.fn(),
 }));
 
 import * as storageProvider from "@/lib/storageProvider";
@@ -80,7 +84,7 @@ function makeRecord(overrides: Partial<CortexRecord> = {}): CortexRecord {
   };
 }
 
-describe("storageProvider — P0 fixes", () => {
+describe("storageProvider — after Obsidian consolidation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     Object.defineProperty(globalThis, "localStorage", {
@@ -94,7 +98,6 @@ describe("storageProvider — P0 fixes", () => {
       },
       writable: true,
     });
-    // storageProvider.getMode() depende de typeof window
     Object.defineProperty(globalThis, "window", {
       value: {},
       writable: true,
@@ -103,6 +106,8 @@ describe("storageProvider — P0 fixes", () => {
     delete process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
     delete process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   });
+
+  // ---- saveRecord ----
 
   it("salva em localStorage exatamente uma vez (modo local)", async () => {
     const record = makeRecord();
@@ -117,24 +122,35 @@ describe("storageProvider — P0 fixes", () => {
     process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID = "fake";
 
     await storageProvider.saveRecord(makeRecord());
-
     expect(mockSaveRecord).toHaveBeenCalledTimes(1);
   });
 
-  it("não quebra se Obsidian vaultStorage falhar", async () => {
-    mockObsidianSave.mockRejectedValue(new Error("Obsidian offline"));
+  it("chama adapter saveRecordToObsidian sempre (independente do modo)", async () => {
+    await storageProvider.saveRecord(makeRecord());
+    expect(mockAdapterSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("chama Firebase + adapter em modo hybrid", async () => {
     process.env.NEXT_PUBLIC_STORAGE_MODE = "hybrid";
     process.env.NEXT_PUBLIC_FIREBASE_API_KEY = "fake";
     process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID = "fake";
 
-    const record = makeRecord();
-    await expect(storageProvider.saveRecord(record)).resolves.toBeUndefined();
-    expect(mockSaveRecord).toHaveBeenCalledTimes(1);
+    await storageProvider.saveRecord(makeRecord());
+    expect(mockFirebaseSave).toHaveBeenCalledTimes(1);
+    expect(mockAdapterSave).toHaveBeenCalledTimes(1);
   });
 
-  it("não quebra se adapter salvar no Obsidian falhar", async () => {
-    mockAdapterSave.mockRejectedValue(new Error("Adapter offline"));
+  it("chama Firebase em modo firebase", async () => {
+    process.env.NEXT_PUBLIC_STORAGE_MODE = "firebase";
+    process.env.NEXT_PUBLIC_FIREBASE_API_KEY = "fake";
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID = "fake";
 
+    await storageProvider.saveRecord(makeRecord());
+    expect(mockFirebaseSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("não quebra se adapter saveRecordToObsidian falhar", async () => {
+    mockAdapterSave.mockRejectedValue(new Error("Adapter offline"));
     const record = makeRecord();
     await expect(storageProvider.saveRecord(record)).resolves.toBeUndefined();
     expect(mockSaveRecord).toHaveBeenCalledTimes(1);
@@ -151,24 +167,46 @@ describe("storageProvider — P0 fixes", () => {
     expect(mockSaveRecord).toHaveBeenCalledTimes(1);
   });
 
-  it("chama Firebase em modo firebase", async () => {
-    process.env.NEXT_PUBLIC_STORAGE_MODE = "firebase";
-    process.env.NEXT_PUBLIC_FIREBASE_API_KEY = "fake";
-    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID = "fake";
+  // ---- updateRecord ----
 
-    await storageProvider.saveRecord(makeRecord());
-    expect(mockFirebaseSave).toHaveBeenCalledTimes(1);
-    expect(mockObsidianSave).toHaveBeenCalledTimes(0);
-    // adapter é sempre chamado independente do modo
+  it("updateRecord chama adapter updateRecordInObsidian", async () => {
+    const record = makeRecord();
+    mockGetRecordsById.mockReturnValue(record);
+
+    await storageProvider.updateRecord("test-1", { title: "Novo" });
+    expect(mockAdapterUpdate).toHaveBeenCalledTimes(1);
+    expect(mockAdapterUpdate).toHaveBeenCalledWith({
+      ...record,
+      title: "Novo",
+    });
   });
 
-  it("chama Firebase e vaultStorage em modo hybrid", async () => {
-    process.env.NEXT_PUBLIC_STORAGE_MODE = "hybrid";
-    process.env.NEXT_PUBLIC_FIREBASE_API_KEY = "fake";
-    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID = "fake";
+  it("não quebra se adapter updateRecordInObsidian falhar", async () => {
+    mockAdapterUpdate.mockRejectedValue(new Error("offline"));
+    mockGetRecordsById.mockReturnValue(makeRecord());
 
-    await storageProvider.saveRecord(makeRecord());
-    expect(mockFirebaseSave).toHaveBeenCalledTimes(1);
-    expect(mockObsidianSave).toHaveBeenCalledTimes(1);
+    await expect(
+      storageProvider.updateRecord("test-1", { title: "X" })
+    ).resolves.toBeUndefined();
+  });
+
+  // ---- deleteRecord ----
+
+  it("deleteRecord chama adapter deleteRecordFromObsidian", async () => {
+    const record = makeRecord();
+    mockGetRecordsById.mockReturnValue(record);
+
+    await storageProvider.deleteRecord("test-1");
+    expect(mockAdapterDelete).toHaveBeenCalledTimes(1);
+    expect(mockAdapterDelete).toHaveBeenCalledWith(record);
+  });
+
+  it("não quebra se adapter deleteRecordFromObsidian falhar", async () => {
+    mockAdapterDelete.mockRejectedValue(new Error("offline"));
+    mockGetRecordsById.mockReturnValue(makeRecord());
+
+    await expect(
+      storageProvider.deleteRecord("test-1")
+    ).resolves.toBeUndefined();
   });
 });

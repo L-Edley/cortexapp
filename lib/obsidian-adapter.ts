@@ -5,6 +5,7 @@
 // e o sistema continua funcionando apenas com localStorage.
 
 import type { CortexRecord, CortexRecordType } from "@/lib/types";
+import { getObsidianPath } from "@/lib/obsidian/paths";
 
 export type ObsidianNoteType =
   | "gasto"
@@ -405,10 +406,39 @@ export async function saveRecordToObsidian(
 
   try {
     const content = recordToObsidianNote(record);
-    const tipo = cortexTypeToNoteType(record.type);
-    const folder = getFolderByRecordType(tipo);
-    const path = `${folder}/${record.id}.md`;
+    const path = getObsidianPath(record);
     return await writeObsidianNote(path, content);
+  } catch {
+    return false;
+  }
+}
+
+export async function updateRecordInObsidian(
+  record: CortexRecord
+): Promise<boolean> {
+  if (!isObsidianAvailable()) return false;
+
+  try {
+    const content = recordToObsidianNote(record);
+    const path = getObsidianPath(record);
+    return await writeObsidianNote(path, content);
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteRecordFromObsidian(
+  record: CortexRecord
+): Promise<boolean> {
+  if (!isObsidianAvailable()) return false;
+
+  try {
+    const path = getObsidianPath(record);
+    const encoded = encodeURIComponent(path);
+    const res = await fetch(`/api/obsidian/vault/${encoded}`, {
+      method: "DELETE",
+    });
+    return res.ok || res.status === 404;
   } catch {
     return false;
   }

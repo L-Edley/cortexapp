@@ -49,6 +49,26 @@ describe("Obsidian proxy — segurança", () => {
     const body = await res.json();
     expect(body.error).toContain("OBSIDIAN_API_KEY");
   });
+
+  it("DELETE retorna 400 se OBSIDIAN_API_KEY não está configurada", async () => {
+    process.env.OBSIDIAN_REST_URL = "http://127.0.0.1:27123";
+    delete process.env.OBSIDIAN_API_KEY;
+
+    const { DELETE } = await import(
+      "@/app/api/obsidian/vault/[...path]/route"
+    );
+    const req = new NextRequest(
+      new Request("http://localhost/api/obsidian/vault/test.md", {
+        method: "DELETE",
+      })
+    );
+    const res = await DELETE(req, {
+      params: Promise.resolve({ path: ["test.md"] }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("OBSIDIAN_API_KEY");
+  });
 });
 
 describe("Obsidian health — segurança", () => {

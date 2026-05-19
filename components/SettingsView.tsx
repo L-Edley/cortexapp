@@ -31,8 +31,8 @@ import {
   copyVaultReadmeToClipboard,
   checkObsidianConnection,
   getObsidianConfig,
-  syncLocalRecordsToObsidian,
 } from "@/lib/obsidian";
+import SyncStatusPanel from "./SyncStatusPanel";
 import {
   getCurrentMode,
   setStorageMode,
@@ -58,9 +58,6 @@ export default function SettingsView() {
   const [obsidianOnline, setObsidianOnline] = useState<boolean | null>(null);
   const [obsidianChecking, setObsidianChecking] = useState(false);
   const [obsidianUrl, setObsidianUrl] = useState("");
-
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   const [firebaseUser, setFirebaseUser] = useState(getCurrentUser());
   const [storageMode, setStorageModeLocal] = useState<StorageMode>(getCurrentMode());
@@ -141,24 +138,6 @@ export default function SettingsView() {
     const online = await checkObsidianConnection();
     setObsidianOnline(online);
     setObsidianChecking(false);
-  }, []);
-
-  const handleSyncToObsidian = useCallback(async () => {
-    setSyncing(true);
-    setSyncResult(null);
-    const result = await syncLocalRecordsToObsidian();
-    if (result.errors.length > 0 && result.errors[0].path === "config") {
-      setSyncResult("Obsidian REST não está habilitado nas variáveis de ambiente.");
-    } else if (result.errors.length > 0 && result.errors[0].path === "connection") {
-      setSyncResult("Obsidian REST está offline. Verifique se o plugin está ativo.");
-    } else {
-      setSyncResult(
-        `Sincronizado: ${result.successCount} de ${result.totalAttempted} registro(s).` +
-          (result.failCount > 0 ? ` ${result.failCount} falha(s).` : "")
-      );
-    }
-    setSyncing(false);
-    setObsidianOnline(result.failCount === 0 && result.totalAttempted > 0);
   }, []);
 
   useEffect(() => {
@@ -332,44 +311,7 @@ export default function SettingsView() {
             </div>
           </div>
 
-          {syncResult && (
-            <div className={`rounded-xl p-3 text-sm flex items-center gap-2 ${
-              syncResult.includes("falha")
-                ? "bg-yellow-500/10 border border-yellow-500/20 text-yellow-400"
-                : "bg-green-500/10 border border-green-500/20 text-green-400"
-            }`}>
-              {syncResult.includes("falha") ? (
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-              ) : (
-                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-              )}
-              <span>{syncResult}</span>
-            </div>
-          )}
-
-          <button
-            onClick={handleSyncToObsidian}
-            disabled={syncing || obsidianOnline !== true}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-900/80 border border-zinc-800 hover:border-zinc-700 transition-all text-left disabled:opacity-40"
-          >
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
-              {syncing ? (
-                <RefreshCw className="w-4 h-4 text-emerald-400 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4 text-emerald-400" />
-              )}
-            </div>
-            <div>
-              <p className="text-sm text-zinc-200">
-                {syncing
-                  ? "Sincronizando..."
-                  : "Sincronizar registros locais para o vault"}
-              </p>
-              <p className="text-xs text-zinc-500">
-                Converte todos os registros do localStorage em arquivos .md no Obsidian
-              </p>
-            </div>
-          </button>
+          <SyncStatusPanel />
 
           <a
             href="https://github.com/coddingtonbear/obsidian-local-rest-api"

@@ -1,3 +1,9 @@
+/**
+ * @deprecated Use recordToObsidianNote de lib/obsidian-adapter.ts.
+ * Mantido apenas para markdown.ts → export.ts (download de arquivos).
+ * O fluxo principal do app usa obsidian-adapter.ts.
+ */
+
 import type { CortexRecord } from "@/lib/types";
 
 export function taskTemplate(record: CortexRecord): string {

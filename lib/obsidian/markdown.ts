@@ -1,6 +1,13 @@
-  import type { CortexRecord } from "@/lib/types";
+/**
+ * @deprecated Use recordToObsidianNote de lib/obsidian-adapter.ts.
+ * Este módulo é mantido apenas para export.ts (download de arquivos .md).
+ * Nenhuma lógica de escrita no vault deve usar recordToMarkdown.
+ */
+
+import type { CortexRecord } from "@/lib/types";
 import { TEMPLATES } from "./templates";
 
+/** @deprecated Use recordToObsidianNote de lib/obsidian-adapter.ts */
 export function recordToMarkdown(record: CortexRecord): string {
   const fn = TEMPLATES[record.type];
   if (fn) return fn(record);

@@ -9,35 +9,37 @@ export function sanitizeFileName(title: string | null | undefined): string {
     .slice(0, 120);
 }
 
+const FOLDER_MAP: Record<CortexRecordType, string> = {
+  task: "Tarefas",
+  idea: "Ideias",
+  expense: "Financeiro",
+  focus_request: "Daily",
+  daily_review: "Daily",
+  project_note: "Projetos",
+  unknown: "00_Inbox",
+};
+
 export function getObsidianPath(record: CortexRecord): string {
-  const safe = sanitizeFileName(record.title);
-  if (!safe) return "Inbox/untitled.md";
+  const folder = FOLDER_MAP[record.type] ?? "00_Inbox";
 
-  const date = record.createdAt?.split("T")[0] ?? "";
-  const dateStr = date.replace(/-/g, "-");
+  // Usa ID do registro como nome do arquivo (migração de {title}.md → {id}.md)
+  // Fallback: se não houver ID, usa título sanitizado
+  const fileName = record.id
+    ? `${record.id}.md`
+    : `${sanitizeFileName(record.title) || "untitled"}.md`;
 
-  const pathMap: Record<CortexRecordType, string> = {
-    task: `Tarefas/${safe}.md`,
-    idea: `Ideias/${safe}.md`,
-    expense: dateStr ? `Financeiro/${dateStr}-${safe}.md` : `Financeiro/${safe}.md`,
-    focus_request: dateStr ? `Daily/${dateStr}-focus.md` : `Daily/focus.md`,
-    daily_review: dateStr ? `Daily/${dateStr}.md` : `Daily/review.md`,
-    project_note: `ProjectNotes/${safe}.md`,
-    unknown: `Inbox/${safe}.md`,
-  };
-
-  return pathMap[record.type] ?? `Inbox/${safe}.md`;
+  return `${folder}/${fileName}`;
 }
 
 export const VAULT_STRUCTURE = `vault/
+├── 00_Inbox/
 ├── Daily/
 ├── Financeiro/
+├── Hábitos/
 ├── Ideias/
-├── Inbox/
-├── ProjectNotes/
+├── Projetos/
 ├── Tarefas/
-├── Dashboard.md
-├── Foco.md`;
+├── Dashboard.md`;
 
 export const RECOMMENDED_PLUGINS = [
   "Dataview",

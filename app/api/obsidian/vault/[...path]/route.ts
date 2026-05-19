@@ -86,3 +86,11 @@ export async function PUT(
   const body = await request.text();
   return proxyRequest("PUT", path.join("/"), body);
 }
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> }
+): Promise<NextResponse> {
+  const { path } = await params;
+  return proxyRequest("DELETE", path.join("/"), null);
+}
