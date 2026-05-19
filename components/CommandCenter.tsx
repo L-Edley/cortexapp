@@ -17,14 +17,26 @@ import {
   generateBriefing,
   markBriefingShown,
 } from "@/lib/dailyBriefing";
-import VoiceCenter from "@/components/VoiceCenter";
+import dynamic from "next/dynamic";
 import { checkAllAlerts, getUnshownAlerts, markAlertShown } from "@/lib/aionAlerts";
 import { runAionScheduledJobs } from "@/lib/aionScheduler";
 import { addToSession, getRecentSessionMessages } from "@/lib/sessionMemory";
 import StreamingText from "@/components/voice/StreamingText";
 import MicButton from "@/components/voice/MicButton";
-import VoiceCenterCockpit from "@/components/voice/VoiceCenter";
 import { speak, stopSpeaking } from "@/lib/aionVoice";
+import { normalizeAionError } from "@/lib/aionError";
+
+const VoiceCenter = dynamic(() => import("@/components/VoiceCenter"), {
+  ssr: false,
+});
+
+const VoiceCenterCockpit = dynamic(() => import("@/components/voice/VoiceCenter"), {
+  ssr: false,
+});
+
+const AionDiagnosticsPanel = dynamic(() => import("@/components/debug/AionDiagnosticsPanel"), {
+  ssr: false,
+});
 
 export default function CommandCenter() {
   const [message, setMessage] = useState("");
@@ -34,6 +46,7 @@ export default function CommandCenter() {
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [followUp, setFollowUp] = useState<string | null>(null);
   const [tips, setTips] = useState<string[]>([]);
+  const [latestMetrics, setLatestMetrics] = useState<any | null>(null);
 
   const [micState, setMicState] = useState<"idle" | "listening" | "processing" | "speaking" | "error">("idle");
   const [viewMode, setViewMode] = useState<"terminal" | "cockpit">("cockpit");
@@ -133,8 +146,17 @@ export default function CommandCenter() {
   // Speech synthesis queue is now managed by aionVoice library
 
   const handleSend = async (text?: string) => {
+    if (typeof window !== "undefined") {
+      (window as any).__aionBusy = true;
+      (window as any).__aionRequestStart = Date.now();
+    }
     const msg = (text ?? message).trim();
-    if (!msg) return;
+    if (!msg) {
+      if (typeof window !== "undefined") {
+        (window as any).__aionBusy = false;
+      }
+      return;
+    }
 
     setLoading(true);
     setMicState("processing");
@@ -196,18 +218,114 @@ export default function CommandCenter() {
         payload.profileContext = profileContext;
       }
 
-      const response = await fetch("/api/aion", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      let data: any = null;
+      let replyAccumulated = "";
 
-      if (!response.ok) {
-        throw new Error("ERRO DE COMUNICAÇÃO");
+      try {
+        const response = await fetch("/api/aion/stream", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok || !response.body) {
+          throw new Error("Streaming not available");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() || "";
+
+          for (const part of parts) {
+            const lines = part.split("\n");
+            let event = "";
+            let dataStr = "";
+
+            for (const line of lines) {
+              if (line.startsWith("event: ")) {
+                event = line.slice(7).trim();
+              } else if (line.startsWith("data: ")) {
+                dataStr = line.slice(6).trim();
+              }
+            }
+
+            if (event && dataStr) {
+              try {
+                const parsedData = JSON.parse(dataStr);
+                if (event === "status") {
+                  if (parsedData.status === "classifying") {
+                    setAiResponse("Classificando...");
+                  } else if (parsedData.status === "building_context") {
+                    setAiResponse("Buscando contexto...");
+                  } else if (parsedData.status === "thinking") {
+                    setAiResponse("Pensando...");
+                  }
+                } else if (event === "token") {
+                  replyAccumulated += parsedData.token;
+                  setAiResponse(replyAccumulated);
+                } else if (event === "final") {
+                  data = parsedData;
+                } else if (event === "error") {
+                  throw new Error(parsedData.error);
+                }
+              } catch (e) {
+                console.warn("Error parsing stream chunk:", e);
+              }
+            }
+          }
+        }
+
+        if (!data) {
+          throw new Error("Final response missing in stream");
+        }
+      } catch (streamErr) {
+        console.warn("[AION STREAM] Fallback to POST /api/aion due to:", streamErr);
+        const response = await fetch("/api/aion", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          throw new Error("ERRO DE COMUNICAÇÃO");
+        }
+
+        data = await response.json();
       }
 
-      const data = await response.json();
       const { reply, voiceReply, action, record: recordData, sources: responseSources, suggestion: sug, followUpQuestion, tips: tipList, learningCandidate, debug } = data;
+
+      if (debug?.latencyMetrics) {
+        const ttsStartMs = typeof window !== "undefined"
+          ? Date.now() - ((window as any).__aionRequestStart || Date.now())
+          : undefined;
+
+        setLatestMetrics({
+          timestamp: new Date().toISOString(),
+          intent: debug.intent || "unknown",
+          providerUsed: debug.providerUsed || "none",
+          fallbackUsed: debug.fallbackUsed || false,
+          streamingUsed: debug.latencyMetrics.streamingUsed || false,
+          totalMs: debug.latencyMetrics.totalMs || 0,
+          firstStatusMs: debug.latencyMetrics.firstStatusMs,
+          firstTokenMs: debug.latencyMetrics.firstTokenMs,
+          streamTotalMs: debug.latencyMetrics.streamTotalMs,
+          classifyIntentMs: debug.latencyMetrics.classifyIntentMs,
+          contextBuildMs: debug.latencyMetrics.contextBuildMs,
+          semanticSearchMs: debug.semanticSearchMs || debug.latencyMetrics.semanticSearchMs,
+          llmMs: debug.latencyMetrics.llmMs,
+          storageMs: debug.latencyMetrics.storageMs,
+          ttsStartMs,
+        });
+      }
 
       if (process.env.NODE_ENV === "development") {
         const route = debug?.route as RouteType | undefined;
@@ -241,7 +359,16 @@ export default function CommandCenter() {
       if (voiceReply) {
         setMicState("speaking");
         speak(voiceReply, {
-          onStart: () => setMicState("speaking"),
+          onStart: () => {
+            setMicState("speaking");
+            if (typeof window !== "undefined") {
+              const requestStart = (window as any).__aionRequestStart || Date.now();
+              const ttsStartMs = Date.now() - requestStart;
+              if (process.env.NODE_ENV === "development") {
+                console.log(`[AION LATENCY AUDIT] TTS Speech started after: ${ttsStartMs}ms`);
+              }
+            }
+          },
           onEnd: () => setMicState("idle"),
           onError: () => setMicState("idle"),
         }).catch(() => setMicState("idle"));
@@ -322,11 +449,30 @@ export default function CommandCenter() {
           console.warn("[AION] Falha ao salvar aprendizado no client:", err);
         }
       }
-    } catch {
-      setAiResponse("Falha ao processar comando. Tente novamente.");
+    } catch (err) {
+      console.error("[AION ERROR]", err);
+      const normalized = normalizeAionError(err);
+      
+      setLatestMetrics({
+        timestamp: new Date().toISOString(),
+        intent: "error",
+        providerUsed: "none",
+        fallbackUsed: true,
+        streamingUsed: false,
+        totalMs: typeof window !== "undefined"
+          ? Date.now() - ((window as any).__aionRequestStart || Date.now())
+          : 0,
+        errorType: normalized.type,
+        errorFallbackUsed: "Mostrar mensagem amigável ao usuário e restaurar cockpit.",
+      });
+
+      setAiResponse(normalized.message);
     } finally {
       setLoading(false);
       setMicState((prev) => (prev === "processing" ? "idle" : prev));
+      if (typeof window !== "undefined") {
+        (window as any).__aionBusy = false;
+      }
     }
   };
 
@@ -481,6 +627,7 @@ export default function CommandCenter() {
       )}
 
       <VoiceCenter />
+      <AionDiagnosticsPanel latestMetrics={latestMetrics} />
     </div>
   );
 }

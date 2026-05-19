@@ -12,6 +12,7 @@ import { getMemory } from "@/lib/aion/memory";
 import { parseRecordFromDecision } from "@/lib/aion/tools";
 import { resolveRelativeDatePtBR } from "@/lib/aion/dateResolver";
 import { generateId } from "@/lib/aion/brain/brainStore";
+import { getContextPolicy } from "./aionContextPolicy";
 
 export type AionReasonIntent =
   | "record"
@@ -322,24 +323,70 @@ function parseLLMResponse(text: string): AionDecision | null {
   };
 }
 
+function logLatencyMetrics(metrics: {
+  totalMs: number;
+  classifyIntentMs: number;
+  smartRouterMs: number;
+  contextBuildMs: number;
+  semanticSearchMs: number;
+  llmMs: number;
+  storageMs: number;
+  providerUsed: string;
+  fallbackUsed: boolean;
+  intent: string;
+}) {
+  if (process.env.NODE_ENV === "development") {
+    console.log("[AION LATENCY AUDIT] --------------------");
+    console.log(`[AION] Intent: ${metrics.intent}`);
+    console.log(`[AION] Route Total: ${metrics.totalMs}ms`);
+    console.log(`  - classifyIntent: ${metrics.classifyIntentMs}ms`);
+    console.log(`  - smartRouter: ${metrics.smartRouterMs}ms`);
+    console.log(`  - contextBuild: ${metrics.contextBuildMs}ms`);
+    console.log(`  - semanticSearch: ${metrics.semanticSearchMs}ms`);
+    console.log(`  - llmFallbackCall: ${metrics.llmMs}ms`);
+    console.log(`  - localStorage: ${metrics.storageMs}ms`);
+    console.log(`  - provider: ${metrics.providerUsed}`);
+    console.log(`  - fallbackUsed: ${metrics.fallbackUsed}`);
+    console.log("[AION LATENCY AUDIT] --------------------");
+  }
+}
+
 async function llmPipeline(
   userInput: string,
   intent: AionReasonIntent,
   options?: ReasonOptions,
-  startTime?: number
+  startTime?: number,
+  classifyIntentMs = 0,
+  smartRouterMs = 0
 ): Promise<AionReasonResponse> {
   const realStart = startTime ?? Date.now();
+  let contextBuildMs = 0;
+  let semanticSearchMs = 0;
+  let llmMs = 0;
+  let storageMs = 0;
+
   const memory = getMemory();
   const conversationContext = memory ? memory.formatConversationContext() : "";
+  const policy = getContextPolicy(intent);
 
+  // 1. Semantic search step (bypass under smalltalk/memory intents)
+  const isSmalltalk = intent === "smalltalk";
+  const searchStart = Date.now();
   const brainContext: AionBrainItem[] = options?.brainContextFromClient
     ? (options.brainContextFromClient as AionBrainItem[])
-    : await retrieveRelevantBrainContext(userInput);
+    : ((isSmalltalk || !policy.loadSemanticSearch)
+        ? []
+        : await retrieveRelevantBrainContext(userInput));
+  semanticSearchMs = isSmalltalk || !policy.loadSemanticSearch ? 0 : Date.now() - searchStart;
 
-  if (intent === "question") {
+  // 2. Question direct answer step
+  if (intent === "question" && !isSmalltalk) {
+    const questionStart = Date.now();
     const brainAnswer = await answerFromBrain(userInput, brainContext);
+    llmMs = Date.now() - questionStart;
     if (brainAnswer) {
       const { text, voiceReply } = enforceToneRules(brainAnswer, brainAnswer.split(/[.!?]/)[0] + ".");
+      const totalMs = Date.now() - realStart;
       return {
         text,
         voiceReply,
@@ -349,15 +396,32 @@ async function llmPipeline(
         confidence: 0.85,
         providerUsed: "aion-brain",
         route: "brain",
-        timeMs: Date.now() - realStart,
-        debug: { brainItemsUsed: brainContext.length },
+        timeMs: totalMs,
+        debug: {
+          brainItemsUsed: brainContext.length,
+          latencyMetrics: {
+            totalMs,
+            classifyIntentMs,
+            smartRouterMs,
+            contextBuildMs,
+            semanticSearchMs,
+            llmMs,
+            storageMs,
+            providerUsed: "aion-brain",
+            fallbackUsed: false,
+            intent,
+          }
+        },
       };
     }
   }
 
+  // 3. Build session context step
+  const buildStart = Date.now();
   const aionContext = await buildSessionContext(userInput.trim(), {
     brainItems: brainContext,
     recentRecords: options?.recentRecords || [],
+    contextPolicy: policy,
   });
   if (options?.sessionMessages) {
     aionContext.recentSessionMessages = options.sessionMessages;
@@ -365,11 +429,17 @@ async function llmPipeline(
   const contextDebug = buildContextDebug(aionContext);
   const systemPrompt = buildSystemPrompt(aionContext);
   const userPrompt = buildQueryPrompt(userInput.trim(), aionContext, conversationContext);
+  contextBuildMs = Date.now() - buildStart;
 
+  // 4. LLM execution step
+  const llmStart = Date.now();
   const llmResult = await callWithFallback(userPrompt, systemPrompt);
+  llmMs = Date.now() - llmStart;
 
+  // 5. Fallback routes
   if (!llmResult.text || llmResult.text.trim().length === 0) {
     const llmRoute = (llmResult as { route?: string }).route || "fallback";
+    const totalMs = Date.now() - realStart;
     return {
       text: "Não consegui processar sua mensagem agora. Pode tentar de novo?",
       voiceReply: "Não consegui processar.",
@@ -380,14 +450,30 @@ async function llmPipeline(
       providerUsed: llmResult.providerUsed || "none",
       route: "fallback",
       llmRoute,
-      timeMs: Date.now() - realStart,
-      debug: { contextDebug, fallbackReason: "all_providers_failed" as AionFallbackReason },
+      timeMs: totalMs,
+      debug: {
+        contextDebug,
+        fallbackReason: "all_providers_failed" as AionFallbackReason,
+        latencyMetrics: {
+          totalMs,
+          classifyIntentMs,
+          smartRouterMs,
+          contextBuildMs,
+          semanticSearchMs,
+          llmMs,
+          storageMs,
+          providerUsed: llmResult.providerUsed || "none",
+          fallbackUsed: true,
+          intent,
+        }
+      },
     };
   }
 
   const decision = parseLLMResponse(llmResult.text);
 
   if (!decision) {
+    const totalMs = Date.now() - realStart;
     return {
       text: "Recebi sua mensagem, mas não consegui processar direito. Pode reformular?",
       voiceReply: "Não consegui processar direito.",
@@ -398,11 +484,28 @@ async function llmPipeline(
       providerUsed: llmResult.providerUsed || "unknown",
       route: "fallback",
       llmRoute: (llmResult as { route?: string }).route || "api",
-      timeMs: Date.now() - realStart,
-      debug: { contextDebug, fallbackReason: "invalid_json_after_repair" as AionFallbackReason },
+      timeMs: totalMs,
+      debug: {
+        contextDebug,
+        fallbackReason: "invalid_json_after_repair" as AionFallbackReason,
+        latencyMetrics: {
+          totalMs,
+          classifyIntentMs,
+          smartRouterMs,
+          contextBuildMs,
+          semanticSearchMs,
+          llmMs,
+          storageMs,
+          providerUsed: llmResult.providerUsed || "unknown",
+          fallbackUsed: true,
+          intent,
+        }
+      },
     };
   }
 
+  // 6. Local storage writes (save memory, save records)
+  const storageStart = Date.now();
   if (decision.action === "save_memory" && decision.record) {
     try {
       const brainItem: AionBrainItem = {
@@ -443,6 +546,7 @@ async function llmPipeline(
       /* fail silently */
     }
   }
+  storageMs = Date.now() - storageStart;
 
   const actions: string[] = [];
   if (decision.action && decision.action !== "none") {
@@ -454,6 +558,7 @@ async function llmPipeline(
   if (decision.followUpQuestion) nextSteps.push(decision.followUpQuestion);
 
   const { text, voiceReply } = enforceToneRules(decision.reply, decision.voiceReply);
+  const totalMs = Date.now() - realStart;
 
   return {
     text,
@@ -465,7 +570,7 @@ async function llmPipeline(
     providerUsed: llmResult.providerUsed || "unknown",
     route: "llm",
     llmRoute: (llmResult as { route?: string }).route || "api",
-    timeMs: Date.now() - realStart,
+    timeMs: totalMs,
     record: decision.record || null,
     suggestion: decision.suggestion,
     followUpQuestion: decision.followUpQuestion,
@@ -475,6 +580,18 @@ async function llmPipeline(
     debug: {
       contextDebug,
       brainItemsUsed: brainContext.length,
+      latencyMetrics: {
+        totalMs,
+        classifyIntentMs,
+        smartRouterMs,
+        contextBuildMs,
+        semanticSearchMs,
+        llmMs,
+        storageMs,
+        providerUsed: llmResult.providerUsed || "unknown",
+        fallbackUsed: false,
+        intent,
+      }
     },
   };
 }
@@ -484,21 +601,105 @@ export async function reason(
   options?: ReasonOptions
 ): Promise<AionReasonResponse> {
   const startTime = Date.now();
+  let classifyIntentMs = 0;
+  let smartRouterMs = 0;
 
   if (!userInput || typeof userInput !== "string" || userInput.trim().length === 0) {
     return buildEmptyResponse(startTime);
   }
 
+  const classifyStart = Date.now();
   const intent = classifyIntent(userInput);
+  classifyIntentMs = Date.now() - classifyStart;
 
+  const routerStart = Date.now();
   const routing = smartRouter(userInput.trim());
+  smartRouterMs = Date.now() - routerStart;
+
   if (routing.route === "local") {
-    return localToReasonResponse(routing.response, intent, startTime);
+    const res = localToReasonResponse(routing.response, intent, startTime);
+    const metrics = {
+      totalMs: Date.now() - startTime,
+      classifyIntentMs,
+      smartRouterMs,
+      contextBuildMs: 0,
+      semanticSearchMs: 0,
+      llmMs: 0,
+      storageMs: 0,
+      providerUsed: "smart-router",
+      fallbackUsed: false,
+      intent,
+    };
+    res.debug = {
+      ...res.debug,
+      latencyMetrics: metrics,
+    };
+    logLatencyMetrics(metrics);
+    return res;
+  }
+
+  if (intent === "smalltalk") {
+    const greetings = ["oi", "ola", "bom dia", "boa tarde", "boa noite", "eae", "opa", "tudo bem", "olá"];
+    const normalized = userInput.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    if (greetings.includes(normalized) || normalized.length < 5) {
+      const metrics = {
+        totalMs: Date.now() - startTime,
+        classifyIntentMs,
+        smartRouterMs,
+        contextBuildMs: 0,
+        semanticSearchMs: 0,
+        llmMs: 0,
+        storageMs: 0,
+        providerUsed: "local-smalltalk",
+        fallbackUsed: false,
+        intent,
+      };
+      const res = {
+        text: "Olá! Como posso ajudar você hoje?",
+        voiceReply: "Olá! Como posso ajudar?",
+        intent,
+        actionsExecuted: [],
+        nextSteps: ["Criar uma tarefa", "Ver painel financeiro"],
+        confidence: 0.95,
+        providerUsed: "local-smalltalk",
+        route: "local" as const,
+        timeMs: Date.now() - startTime,
+        debug: {
+          latencyMetrics: metrics,
+        },
+      };
+      logLatencyMetrics(metrics);
+      return res;
+    }
   }
 
   if (intent === "memory") {
-    return await handleMemoryIntent(userInput, startTime);
+    const memoryStart = Date.now();
+    const res = await handleMemoryIntent(userInput, startTime);
+    const storageMs = Date.now() - memoryStart;
+    const metrics = {
+      totalMs: Date.now() - startTime,
+      classifyIntentMs,
+      smartRouterMs,
+      contextBuildMs: 0,
+      semanticSearchMs: 0,
+      llmMs: 0,
+      storageMs,
+      providerUsed: res.providerUsed || "aion-brain",
+      fallbackUsed: false,
+      intent,
+    };
+    res.debug = {
+      ...res.debug,
+      latencyMetrics: metrics,
+    };
+    logLatencyMetrics(metrics);
+    return res;
   }
 
-  return await llmPipeline(userInput, intent, options, startTime);
+  const res = await llmPipeline(userInput, intent, options, startTime, classifyIntentMs, smartRouterMs);
+  if (res.debug?.latencyMetrics) {
+    logLatencyMetrics(res.debug.latencyMetrics as any);
+  }
+  return res;
 }

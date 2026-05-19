@@ -1,7 +1,24 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports */
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createElement } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
+
+vi.mock("next/dynamic", () => ({
+  default: (loader: () => Promise<any>) => {
+    const React = require("react");
+    return function DynamicMock(props: any) {
+      const [Component, setComponent] = React.useState<any>(null);
+      React.useEffect(() => {
+        loader().then((mod) => {
+          setComponent(() => mod.default);
+        });
+      }, []);
+      if (!Component) return null;
+      return React.createElement(Component, props);
+    };
+  }
+}));
 
 // Mock dependent modules
 vi.mock("@/lib/storageProvider", () => ({

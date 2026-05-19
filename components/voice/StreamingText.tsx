@@ -152,7 +152,11 @@ export default function StreamingText({
   };
 
   return (
-    <div className="font-mono text-slate-100 leading-relaxed text-sm md:text-base break-words">
+    <div
+      role="log"
+      aria-live="polite"
+      className="font-mono text-slate-100 leading-relaxed text-sm md:text-base break-words whitespace-pre-wrap"
+    >
       <style>{`
         @keyframes streaming-blink {
           50% { opacity: 0; }

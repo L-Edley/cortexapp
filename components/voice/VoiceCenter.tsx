@@ -1,10 +1,26 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import StreamingText from "./StreamingText";
 import MicButton from "./MicButton";
 import { Send, Sparkles, Terminal } from "lucide-react";
 import { stopSpeaking } from "@/lib/aionVoice";
+
+const GlobeCanvas = dynamic(() => import("./GlobeCanvas"), {
+  ssr: false,
+  loading: () => (
+    <div className="relative flex items-center justify-center w-36 h-36 md:w-44 md:h-44 rounded-full border border-slate-800/40 bg-slate-900/10 backdrop-blur-sm shadow-inner transition-all duration-500">
+      <div className="absolute inset-0 rounded-full blur-2xl opacity-20 bg-slate-500 scale-95 pointer-events-none" />
+      <div className="absolute inset-0 rounded-full border-2 border-dashed border-slate-800/30 animate-[spin_20s_linear_infinite]" />
+      <div className="absolute inset-2 rounded-full border border-double border-slate-800/20" />
+      <div className="absolute inset-4 rounded-full border border-dashed border-slate-800/10 animate-[spin_15s_linear_infinite_reverse]" />
+      <div className="w-16 h-16 rounded-full flex items-center justify-center bg-slate-950/60 border border-slate-800/40">
+        <Terminal className="w-6 h-6 text-slate-400" />
+      </div>
+    </div>
+  ),
+});
 
 export interface VoiceCenterProps {
   onSendMessage: (text: string) => Promise<void>;
@@ -29,6 +45,18 @@ export default function VoiceCenter({
   const [globalState, setGlobalState] = useState<
     "idle" | "listening" | "processing" | "responding" | "error"
   >("idle");
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  // Sync reduced motion preference
+  useEffect(() => {
+    if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+      const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+      setReducedMotion(mediaQuery.matches);
+      const listener = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+      mediaQuery.addEventListener("change", listener);
+      return () => mediaQuery.removeEventListener("change", listener);
+    }
+  }, []);
 
   // Sync processing state with parents loading prop
   useEffect(() => {
@@ -89,7 +117,7 @@ export default function VoiceCenter({
   }
 
   return (
-    <div className="flex flex-col flex-1 w-full max-w-4xl mx-auto min-h-[500px] bg-slate-950/40 backdrop-blur-md border border-slate-800/60 rounded-3xl p-6 md:p-8 space-y-6 relative overflow-hidden shadow-2xl">
+    <div className="flex flex-col flex-1 w-full max-w-4xl mx-auto min-h-[460px] md:min-h-[540px] bg-slate-950/40 backdrop-blur-md border border-slate-800/60 rounded-3xl p-4 sm:p-6 md:p-8 space-y-4 sm:space-y-6 relative overflow-hidden shadow-2xl transition-all duration-500">
       {/* Animated holographic scanline background grid */}
       <div className="absolute inset-0 bg-[linear-gradient(rgba(18,24,38,0.2)_1px,transparent_1px),linear-gradient(90deg,rgba(18,24,38,0.2)_1px,transparent_1px)] bg-[size:20px_20px] pointer-events-none opacity-50" />
 
@@ -121,38 +149,13 @@ export default function VoiceCenter({
       </div>
 
       {/* Center Display: Space for future 3D Globe Canvas & Aion responses */}
-      <div className="flex-1 flex flex-col items-center justify-center min-h-[220px] space-y-8 z-10">
+      <div className="flex-1 flex flex-col items-center justify-center min-h-[200px] md:min-h-[240px] space-y-6 md:space-y-8 z-10">
         
-        {/* CSS Futuristic HUD Orbit Mockup (Spaceholder for GlobeCanvas) */}
-        <div className="relative flex items-center justify-center w-36 h-36 md:w-44 md:h-44 rounded-full border border-slate-800/40 bg-slate-900/10 backdrop-blur-sm">
-          <div className={`absolute inset-0 rounded-full border-2 border-dashed transition-all duration-1000 ${
-            globalState === "listening" ? "border-cyan-500/30 animate-[spin_10s_linear_infinite] scale-105" :
-            globalState === "processing" ? "border-amber-500/30 animate-[spin_5s_linear_infinite]" :
-            globalState === "responding" ? "border-emerald-500/30 animate-[spin_8s_linear_infinite] scale-95" :
-            "border-slate-800/30 animate-[spin_20s_linear_infinite]"
-          }`} />
-          <div className={`absolute inset-2 rounded-full border border-double transition-all duration-500 ${
-            globalState === "listening" ? "border-cyan-400/40 scale-105" :
-            globalState === "processing" ? "border-amber-400/40" :
-            globalState === "responding" ? "border-emerald-400/40 scale-95" :
-            "border-slate-800/20"
-          }`} />
-          
-          {/* Inner core display */}
-          <div className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-500 ${
-            globalState === "listening" ? "bg-cyan-500/10 shadow-[0_0_20px_rgba(34,211,238,0.2)]" :
-            globalState === "processing" ? "bg-amber-500/10 shadow-[0_0_20px_rgba(245,158,11,0.2)]" :
-            globalState === "responding" ? "bg-emerald-500/10 shadow-[0_0_20px_rgba(16,185,129,0.2)]" :
-            "bg-slate-950/60 shadow-[0_0_15px_rgba(0,0,0,0.5)]"
-          }`}>
-            <Terminal className={`w-6 h-6 transition-colors duration-500 ${
-              globalState === "listening" ? "text-cyan-400" :
-              globalState === "processing" ? "text-amber-400" :
-              globalState === "responding" ? "text-emerald-400" :
-              "text-slate-400"
-            }`} />
-          </div>
-        </div>
+        <GlobeCanvas
+          state={globalState === "responding" ? "speaking" : globalState}
+          reducedMotion={reducedMotion}
+          size="md"
+        />
 
         {/* Dynamic Aion Text Output Panel */}
         <div className="w-full bg-slate-950/60 border border-slate-800/80 rounded-2xl p-5 min-h-[90px] flex items-start space-x-3.5 shadow-inner">

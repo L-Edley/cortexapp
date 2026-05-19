@@ -1,7 +1,24 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports */
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createElement } from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+
+vi.mock("next/dynamic", () => ({
+  default: (loader: () => Promise<any>) => {
+    const React = require("react");
+    return function DynamicMock(props: any) {
+      const [Component, setComponent] = React.useState<any>(null);
+      React.useEffect(() => {
+        loader().then((mod) => {
+          setComponent(() => mod.default);
+        });
+      }, []);
+      if (!Component) return null;
+      return React.createElement(Component, props);
+    };
+  }
+}));
 
 // Mock dependent modules
 vi.mock("@/lib/storageProvider", () => ({
@@ -100,7 +117,7 @@ describe("CommandCenter Voice Integration", () => {
     render(createElement(CommandCenter));
     
     // Trigger message dispatch
-    const sendButton = screen.getByTestId("cockpit-send");
+    const sendButton = await screen.findByTestId("cockpit-send");
     fireEvent.click(sendButton);
 
     await waitFor(() => {
@@ -114,7 +131,7 @@ describe("CommandCenter Voice Integration", () => {
   it("chama stopSpeaking ao clicar no botão de microfone", async () => {
     render(createElement(CommandCenter));
 
-    const micButton = screen.getByTestId("mic-btn");
+    const micButton = await screen.findByTestId("mic-btn");
     fireEvent.click(micButton);
 
     expect(mockStopSpeakingSpy).toHaveBeenCalled();

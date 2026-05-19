@@ -88,8 +88,19 @@ export type AionResponse = {
     ollamaAvailable?: boolean;
     contextDebug?: AionContextDebug;
     brainItemsUsed?: AionBrainItem[];
-    brainItemsCount?: number;
-    learnedNewItem?: boolean;
+    latencyMetrics?: {
+      totalMs: number;
+      classifyIntentMs: number;
+      smartRouterMs: number;
+      contextBuildMs: number;
+      semanticSearchMs: number;
+      llmMs: number;
+      storageMs: number;
+      ttsStartMs?: number;
+      providerUsed: string;
+      fallbackUsed: boolean;
+      intent: string;
+    };
   };
 };
 

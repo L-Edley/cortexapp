@@ -526,3 +526,82 @@ describe("integração com agent.ts", () => {
     expect(typeof result.timeMs).toBe("number");
   });
 });
+
+describe("Aion Latency optimizations & instrumentation", () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockGenerateId.mockReturnValue("test-id-123");
+    mockGetMemory.mockReturnValue({
+      addMessage: vi.fn(),
+      formatConversationContext: vi.fn(() => ""),
+      getHistory: vi.fn(() => []),
+    });
+    mockResolveRelativeDatePtBR.mockReturnValue(null);
+    await loadModule();
+  });
+
+  it("retorna rápido para local fast paths de criação de tarefa sem chamar LLM", async () => {
+    // Para 'criar tarefa', o smartRouter retorna a rota local
+    const localRes = makeLocalResponse({
+      response: {
+        reply: "Tarefa registrada localmente",
+        voiceReply: "Tarefa registrada.",
+        action: "create_record",
+        record: { type: "task", title: "estudar física" },
+        confidence: 0.9,
+      }
+    });
+    mockSmartRouter.mockReturnValue(localRes);
+
+    const result = await mod.reason("criar tarefa estudar física");
+
+    expect(result.route).toBe("local");
+    expect(result.actionsExecuted).toContain("create_record");
+    expect(result.debug?.latencyMetrics).toBeDefined();
+    expect(result.debug?.latencyMetrics?.smartRouterMs).toBeLessThanOrEqual(50);
+    expect(mockCallWithFallback).not.toHaveBeenCalled();
+  });
+
+  it("smalltalk pula a busca semântica pesada", async () => {
+    mockSmartRouter.mockReturnValue(makeApiRoute());
+    mockRetrieveRelevantBrainContext.mockResolvedValue([]);
+    mockBuildSessionContext.mockResolvedValue({
+      profile: null,
+      dailyInsight: null,
+      patterns: {},
+      recentRecords: [],
+      relevantBrainItems: [],
+      semanticResults: [],
+      currentDateTime: new Date().toISOString(),
+      systemState: { totalRecords: 0, pendingTasks: 0, todayExpenses: 0 },
+    });
+    mockBuildContextDebug.mockReturnValue({});
+    mockBuildSystemPrompt.mockReturnValue("system");
+    mockBuildQueryPrompt.mockReturnValue("query");
+    mockCallWithFallback.mockResolvedValue({
+      text: JSON.stringify({ reply: "olá amigo", voiceReply: "olá", action: "none", confidence: 0.9 }),
+      providerUsed: "mock-llm",
+    });
+
+    const result = await mod.reason("oi tudo bem");
+
+    expect(result.intent).toBe("smalltalk");
+    // smalltalk pula retrieveRelevantBrainContext se options?.brainContextFromClient não for passado
+    expect(mockRetrieveRelevantBrainContext).not.toHaveBeenCalled();
+    expect(result.debug?.latencyMetrics?.semanticSearchMs).toBe(0);
+  });
+
+  it("métricas do Aion não salvam conteúdo sensível do input", async () => {
+    const localRes = makeLocalResponse({
+      response: { reply: "Entendido", voiceReply: "Entendido.", action: "none", confidence: 1 }
+    });
+    mockSmartRouter.mockReturnValue(localRes);
+
+    const result = await mod.reason("salvar senha secreta 123");
+
+    const metrics = result.debug?.latencyMetrics;
+    expect(metrics).toBeDefined();
+    // Nenhuma propriedade nas métricas deve guardar o texto
+    expect(JSON.stringify(metrics)).not.toContain("senha secreta 123");
+  });
+});

@@ -111,7 +111,10 @@ describe("aionVoice Library", () => {
   });
 
   it("speak usa apenas o texto recebido", async () => {
-    const mockSpeak = vi.fn();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mockSpeak = vi.fn((utterance: any) => {
+      if (utterance.onend) utterance.onend();
+    });
     const mockCancel = vi.fn();
     (window as any).speechSynthesis = {
       cancel: mockCancel,

@@ -48,6 +48,10 @@ export function markJobRun(jobName: AionJobName): void {
 
 export async function runAionScheduledJobs(options?: { force?: boolean }): Promise<AionJobResult[]> {
   if (typeof window === "undefined") return [];
+  if ((window as any).__aionBusy) {
+    console.log("[SCHEDULER] Aion is busy with a critical response. Postponing scheduled jobs.");
+    return [];
+  }
 
   const results: AionJobResult[] = [];
   const force = options?.force ?? false;

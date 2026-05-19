@@ -1,3 +1,5 @@
+import { loadVoiceProfile, applyVoiceProfileToSpeechOptions } from "./aionVoiceProfile";
+
 export type VoiceProvider = "web_speech" | "elevenlabs" | "none";
 
 export interface AionVoiceOptions {
@@ -156,9 +158,23 @@ function speakWithWebSpeech(text: string, options: AionVoiceOptions): Promise<vo
       utterance.pitch = options.pitch ?? 1.0;
       utterance.volume = options.volume ?? globalVolume;
 
-      const ptVoice = selectBestPortugueseVoice();
-      if (ptVoice) {
-        utterance.voice = ptVoice;
+      let selectedVoice: SpeechSynthesisVoice | null = null;
+      try {
+        const profile = loadVoiceProfile();
+        if (profile.voiceName) {
+          const voices = getAvailableVoices();
+          selectedVoice = voices.find((v) => v.name === profile.voiceName) || null;
+        }
+      } catch {
+        // Fallback
+      }
+
+      if (!selectedVoice) {
+        selectedVoice = selectBestPortugueseVoice();
+      }
+
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
       }
 
       utterance.onend = () => {
@@ -200,18 +216,23 @@ export async function speak(text: string, options: AionVoiceOptions = {}): Promi
     return;
   }
 
-  const provider = getVoiceProvider();
+  const profile = loadVoiceProfile();
+  const mergedOptions = applyVoiceProfileToSpeechOptions(profile, options);
+
+  let provider = profile.provider;
+  if (provider === "local_piper" || provider === "none") {
+    provider = "web_speech";
+  }
 
   if (provider === "elevenlabs") {
     try {
-      await speakWithElevenLabs(text, options);
+      await speakWithElevenLabs(text, mergedOptions);
       return;
     } catch (err) {
       console.warn("ElevenLabs TTS failed, falling back to Web Speech:", err);
-      // Fallback
-      return speakWithWebSpeech(text, options);
+      return speakWithWebSpeech(text, mergedOptions);
     }
-  } else if (provider === "web_speech") {
-    return speakWithWebSpeech(text, options);
+  } else {
+    return speakWithWebSpeech(text, mergedOptions);
   }
 }

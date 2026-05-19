@@ -77,6 +77,16 @@ export interface LLMRouterResult {
   route: "ollama_before" | "ollama_after" | "provider_chain" | "none";
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => reject(new Error("Timeout")), timeoutMs);
+      promise.finally(() => clearTimeout(timer));
+    }),
+  ]);
+}
+
 export async function callWithFallback(
   prompt: string,
   systemPrompt: string
@@ -86,21 +96,26 @@ export async function callWithFallback(
     | "before-cloud"
     | "after-cloud";
   const ollamaModel = process.env.OLLAMA_MODEL || "mistral:7b-q4_k_m";
+  const providerTimeout = parseInt(process.env.PROVIDER_TIMEOUT || "8000", 10);
 
   const ERROR_PREFIXES = ["opencode_", "openrouter_", "groq_", "nvidia_"];
 
   if (priority === "before-cloud" && ollamaAvailable) {
-    const text = await callOllama(prompt, systemPrompt);
-    if (text) {
-      console.log("[AION] Ollama before-cloud respondeu");
-      return {
-        text,
-        providerUsed: "ollama",
-        model: ollamaModel,
-        fallbackUsed: false,
-        ollamaAvailable: true,
-        route: "ollama_before",
-      };
+    try {
+      const text = await withTimeout(callOllama(prompt, systemPrompt), 5000);
+      if (text) {
+        console.log("[AION] Ollama before-cloud respondeu");
+        return {
+          text,
+          providerUsed: "ollama",
+          model: ollamaModel,
+          fallbackUsed: false,
+          ollamaAvailable: true,
+          route: "ollama_before",
+        };
+      }
+    } catch (err) {
+      console.warn("[AION] Ollama before-cloud falhou ou deu timeout:", err);
     }
     console.warn("[AION] Ollama before-cloud falhou, seguindo para cloud");
   }
@@ -108,7 +123,10 @@ export async function callWithFallback(
   const providers = getOrderedProviders();
   for (const entry of providers) {
     try {
-      const text = await entry.provider.generateResponse(prompt, systemPrompt);
+      const text = await withTimeout(
+        entry.provider.generateResponse(prompt, systemPrompt),
+        providerTimeout
+      );
       if (text) {
         const isError = ERROR_PREFIXES.some((p) => text.startsWith(p));
         if (!isError) {
@@ -126,22 +144,26 @@ export async function callWithFallback(
         );
       }
     } catch (err) {
-      console.warn(`[AION] provider ${entry.name} exception:`, err);
+      console.warn(`[AION] provider ${entry.name} exception ou timeout:`, err);
     }
   }
 
   if (priority === "after-cloud" && ollamaAvailable) {
-    const text = await callOllama(prompt, systemPrompt);
-    if (text) {
-      console.log("[AION] Ollama after-cloud respondeu");
-      return {
-        text,
-        providerUsed: "ollama",
-        model: ollamaModel,
-        fallbackUsed: false,
-        ollamaAvailable: true,
-        route: "ollama_after",
-      };
+    try {
+      const text = await withTimeout(callOllama(prompt, systemPrompt), 5000);
+      if (text) {
+        console.log("[AION] Ollama after-cloud respondeu");
+        return {
+          text,
+          providerUsed: "ollama",
+          model: ollamaModel,
+          fallbackUsed: false,
+          ollamaAvailable: true,
+          route: "ollama_after",
+        };
+      }
+    } catch (err) {
+      console.warn("[AION] Ollama after-cloud falhou ou deu timeout:", err);
     }
   }
 

@@ -19,6 +19,17 @@ import { getSystemPrompt } from "@/lib/aion/systemPrompt";
 
 import { getRecentSessionMessages } from "@/lib/sessionMemory";
 import type { SessionMessage } from "@/lib/sessionMemory";
+import { AionContextPolicy } from "./aionContextPolicy";
+import {
+  getCachedProfileContext,
+  setCachedProfileContext,
+  getCachedDailyInsight,
+  setCachedDailyInsight,
+  getCachedRecentRecords,
+  setCachedRecentRecords,
+  getCachedLatestPatterns,
+  setCachedLatestPatterns,
+} from "./aionPerformance";
 
 export type AionPatterns = {
   behaviorTriggers: BehaviorTrigger[];
@@ -111,9 +122,12 @@ export async function buildSessionContext(
   options?: {
     brainItems?: AionBrainItem[];
     recentRecords?: CortexRecord[];
+    contextPolicy?: AionContextPolicy;
   }
 ): Promise<AionContext> {
   const currentDateTime = new Date().toISOString();
+  const policy = options?.contextPolicy;
+
   const fallback: AionContext = {
     profile: null,
     dailyInsight: null,
@@ -125,58 +139,95 @@ export async function buildSessionContext(
     systemState: emptyState(),
   };
 
-  let allRecords: CortexRecord[] = [];
-
-  try {
-    if (isClient()) {
-      allRecords = options?.recentRecords ?? getRecords();
-      fallback.recentRecords = allRecords.slice(0, 5);
-      fallback.systemState = {
-        totalRecords: allRecords.length,
-        pendingTasks: countPendingTasks(allRecords),
-        todayExpenses: countTodayExpenses(allRecords),
-      };
+  if (!policy || policy.loadRecords) {
+    try {
+      if (isClient()) {
+        let allRecords = options?.recentRecords;
+        if (!allRecords) {
+          const cached = getCachedRecentRecords();
+          if (cached) {
+            allRecords = cached;
+          } else {
+            allRecords = getRecords();
+            setCachedRecentRecords(allRecords);
+          }
+        }
+        fallback.recentRecords = allRecords.slice(0, 5);
+        fallback.systemState = {
+          totalRecords: allRecords.length,
+          pendingTasks: countPendingTasks(allRecords),
+          todayExpenses: countTodayExpenses(allRecords),
+        };
+      }
+    } catch {
+      /* SSR-safe */
     }
-  } catch {
-    /* SSR-safe */
   }
 
-  try {
-    const profile = await loadProfile();
-    fallback.profile = profile;
-    fallback.patterns = extractProfilePatterns(profile);
-  } catch {
-    /* profile unavailable */
+  if (!policy || policy.loadProfile) {
+    try {
+      let profile = getCachedProfileContext();
+      if (!profile) {
+        profile = await loadProfile();
+        setCachedProfileContext(profile);
+      }
+      fallback.profile = profile;
+
+      if (!policy || policy.loadPatterns) {
+        let patterns = getCachedLatestPatterns();
+        if (!patterns) {
+          patterns = extractProfilePatterns(profile);
+          setCachedLatestPatterns(patterns);
+        }
+        fallback.patterns = patterns;
+      }
+    } catch {
+      /* profile unavailable */
+    }
   }
 
-  try {
-    fallback.dailyInsight = getLatestDailyInsight();
-  } catch {
-    /* insight unavailable */
+  if (!policy || policy.loadDailyInsight) {
+    try {
+      let dailyInsight = getCachedDailyInsight();
+      if (!dailyInsight) {
+        dailyInsight = getLatestDailyInsight();
+        setCachedDailyInsight(dailyInsight);
+      }
+      fallback.dailyInsight = dailyInsight;
+    } catch {
+      /* insight unavailable */
+    }
   }
 
-  try {
-    const items =
-      options?.brainItems ?? (await retrieveRelevantBrainContext(userInput));
-    fallback.relevantBrainItems = items.slice(0, 3);
-  } catch {
-    /* brain unavailable */
+  if (!policy || policy.loadSemanticSearch) {
+    try {
+      const items =
+        options?.brainItems ?? (await retrieveRelevantBrainContext(userInput));
+      fallback.relevantBrainItems = items.slice(0, 3);
+    } catch {
+      /* brain unavailable */
+    }
+
+    try {
+      const results = await semanticSearch(userInput, {
+        topK: 3,
+        threshold: 0.35,
+      });
+      fallback.semanticResults = results.slice(0, 3);
+    } catch {
+      /* semantic search unavailable */
+    }
   }
 
-  try {
-    const results = await semanticSearch(userInput, {
-      topK: 3,
-      threshold: 0.35,
-    });
-    fallback.semanticResults = results.slice(0, 3);
-  } catch {
-    /* semantic search unavailable */
-  }
-
-  try {
-    fallback.recentSessionMessages = getRecentSessionMessages(10);
-  } catch {
-    /* session memory unavailable */
+  const maxMsgs = policy ? policy.maxSessionMessages : 10;
+  if (maxMsgs > 0) {
+    try {
+      fallback.recentSessionMessages = getRecentSessionMessages(maxMsgs);
+    } catch {
+      /* session memory unavailable */
+    }
+  } else {
+    fallback.recentSessionMessages = [];
   }
 
   return fallback;

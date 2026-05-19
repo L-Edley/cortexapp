@@ -343,22 +343,38 @@ export function smartRouter(message: string): RouteResult {
     return { route: "local", response: dateQueryResponse() };
   }
 
-  const expenseWords = ["gastei", "paguei", "comprei", "custou", "gasto", "comprar", "custa"];
+  const listWords = ["listar tarefas", "listar gastos", "listar despesas", "mostrar tarefas", "mostrar gastos"];
+  if (listWords.some((l) => lower.includes(l))) {
+    return {
+      route: "local",
+      response: {
+        reply: "Aqui estão seus dados locais. Você pode visualizá-los no Cockpit principal do seu painel.",
+        voiceReply: "Mostrando dados locais.",
+        action: "read_dashboard",
+        record: null,
+        confidence: 0.95,
+        fallbackUsed: false,
+        debug: debugLocal(),
+      },
+    };
+  }
+
+  const expenseWords = ["gastei", "paguei", "comprei", "custou", "gasto", "comprar", "custa", "criar gasto", "registrar gasto", "registrar despesa"];
   if (expenseWords.some((e) => lower.includes(e))) {
     return { route: "local", response: expenseResponse(message) };
   }
 
-  const taskWords = ["me lembra", "me lembre", "lembrar", "preciso", "tenho que", "precisa", "fazer", "providenciar", "lembra de", "lembre de"];
+  const taskWords = ["me lembra", "me lembre", "lembrar", "preciso", "tenho que", "precisa", "fazer", "providenciar", "lembra de", "lembre de", "criar tarefa", "adicionar tarefa", "nova tarefa"];
   if (taskWords.some((t) => lower.includes(t))) {
     return { route: "local", response: taskResponse(message) };
   }
 
-  const ideaWords = ["ideia", "pensando em", "e se", "que tal", "tive uma ideia"];
+  const ideaWords = ["ideia", "pensando em", "e se", "que tal", "tive uma ideia", "criar ideia", "anotar ideia", "nova ideia"];
   if (ideaWords.some((i) => lower.includes(i))) {
     return { route: "local", response: ideaResponse(message) };
   }
 
-  const memoryWords = ["salve que", "salva que"];
+  const memoryWords = ["salve que", "salva que", "salvar memoria", "salvar na memoria", "salve na memoria", "guardar na memoria"];
   if (memoryWords.some((m) => lower.includes(m))) {
     return { route: "local", response: salveMemoryResponse(message) };
   }

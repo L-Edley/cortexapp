@@ -239,8 +239,8 @@ export async function runAgent(params: {
     ...(reasonResult.debug?.contextDebug
       ? { contextDebug: reasonResult.debug.contextDebug }
       : {}),
-    ...(typeof reasonResult.debug?.brainItemsUsed === "number"
-      ? { brainItemsCount: reasonResult.debug.brainItemsUsed }
+    ...(reasonResult.debug?.latencyMetrics
+      ? { latencyMetrics: reasonResult.debug.latencyMetrics as any }
       : {}),
     learnedNewItem: false,
   };

@@ -192,8 +192,21 @@ export default function MicButton({
       {state === "listening" && (
         <>
           <span className="absolute inline-flex h-full w-full rounded-full bg-cyan-400/30 animate-ping opacity-75" />
-          <span className="absolute inline-flex h-14 w-14 rounded-full bg-cyan-400/10 animate-pulse opacity-50" />
+          <span className="absolute inline-flex h-16 w-16 rounded-full bg-cyan-400/10 animate-pulse opacity-50" />
         </>
+      )}
+
+      {/* Wave animation circles in speaking state */}
+      {state === "speaking" && (
+        <>
+          <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400/25 animate-ping opacity-60" />
+          <span className="absolute inline-flex h-14 w-14 rounded-full bg-emerald-400/5 animate-pulse opacity-40" />
+        </>
+      )}
+
+      {/* Subtle pulse wave in error state */}
+      {state === "error" && (
+        <span className="absolute inline-flex h-full w-full rounded-full bg-red-400/20 animate-pulse opacity-50" />
       )}
 
       <button
