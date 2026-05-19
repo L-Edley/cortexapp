@@ -1,6 +1,7 @@
 import type { CortexRecord } from "./types";
 import { getRecords } from "./storage";
 import { readVaultFile, writeVaultFile } from "./obsidian/client";
+import { getLocalStorage, setLocalStorage } from "./settings";
 
 export type EnergyPattern = {
   period: string;
@@ -46,6 +47,8 @@ export type AionProfile = {
 };
 
 const PROFILE_PATH = "aion_memory/profile.yaml";
+const PROFILE_STORAGE_KEY = "aion_profile";
+const PROFILE_MIGRATED_KEY = "aion_profile_migrated";
 const INITIAL_VERSION = 1;
 const ANALYSIS_WINDOW = 30;
 
@@ -241,10 +244,36 @@ function parseProfile(raw: string): AionProfile {
   return profile;
 }
 
+async function migrateProfileFromObsidian(): Promise<boolean> {
+  try {
+    const raw = await readVaultFile(PROFILE_PATH);
+    if (!raw) return false;
+    setLocalStorage(PROFILE_STORAGE_KEY, raw);
+    setLocalStorage(PROFILE_MIGRATED_KEY, "true");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function loadProfile(): Promise<AionProfile> {
+  const migrated = getLocalStorage(PROFILE_MIGRATED_KEY);
+  if (migrated) {
+    const raw = getLocalStorage(PROFILE_STORAGE_KEY);
+    if (raw) {
+      try {
+        return parseProfile(raw);
+      } catch {
+      }
+    }
+    return defaultProfile();
+  }
+
   try {
     const raw = await readVaultFile(PROFILE_PATH);
     if (!raw) return defaultProfile();
+    setLocalStorage(PROFILE_STORAGE_KEY, raw);
+    setLocalStorage(PROFILE_MIGRATED_KEY, "true");
     return parseProfile(raw);
   } catch {
     return defaultProfile();
@@ -259,7 +288,9 @@ export async function updateProfile(patch: Partial<AionProfile>): Promise<void> 
     updatedAt: new Date().toISOString(),
   };
   const yaml = serializeProfile(updated);
-  await writeVaultFile(PROFILE_PATH, yaml);
+  setLocalStorage(PROFILE_STORAGE_KEY, yaml);
+  setLocalStorage(PROFILE_MIGRATED_KEY, "true");
+  writeVaultFile(PROFILE_PATH, yaml).catch(() => {});
 }
 
 function detectEnergyPatterns(records: CortexRecord[]): EnergyPattern[] {
@@ -438,7 +469,10 @@ export async function analyzeAndUpdateProfile(): Promise<AionProfile> {
     updatedAt: new Date().toISOString(),
   };
 
-  await writeVaultFile(PROFILE_PATH, serializeProfile(updated));
+  const yaml = serializeProfile(updated);
+  setLocalStorage(PROFILE_STORAGE_KEY, yaml);
+  setLocalStorage(PROFILE_MIGRATED_KEY, "true");
+  writeVaultFile(PROFILE_PATH, yaml).catch(() => {});
   return updated;
 }
 
@@ -496,7 +530,7 @@ export function formatProfileForContext(profile: AionProfile): string {
   return parts.join("\n");
 }
 
-export { serializeProfile, parseProfile };
+export { serializeProfile, parseProfile, migrateProfileFromObsidian };
 export {
   detectEnergyPatterns,
   detectActiveProjects,
