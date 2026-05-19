@@ -11,8 +11,15 @@ import { saveMemory } from "@/lib/aion/brain/memory";
 import type { AionBrainItem } from "@/lib/aion/brain/types";
 import type { RouteType } from "@/lib/aion/types";
 import { loadProfile, analyzeAndUpdateProfile } from "@/lib/aionProfile";
-import { runPatternAnalysis, buildEnhancedProfileContext } from "@/lib/aion/patterns";
+import { buildEnhancedProfileContext } from "@/lib/aion/patterns";
+import {
+  shouldShowBriefing,
+  generateBriefing,
+  markBriefingShown,
+} from "@/lib/dailyBriefing";
 import VoiceCenter from "@/components/VoiceCenter";
+import { checkAllAlerts, getUnshownAlerts, markAlertShown } from "@/lib/aionAlerts";
+import { runAionScheduledJobs } from "@/lib/aionScheduler";
 
 export default function CommandCenter() {
   const [message, setMessage] = useState("");
@@ -27,9 +34,95 @@ export default function CommandCenter() {
   const currentlySpeaking = useRef<boolean>(false);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      runPatternAnalysis({ force: false }).catch(() => {});
-    }
+    if (typeof window === "undefined") return;
+
+    // Run scheduled jobs in background on mount
+    runAionScheduledJobs().catch(() => {});
+
+    if (typeof document === "undefined") return;
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        runAionScheduledJobs().catch(() => {});
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        await checkAllAlerts().catch(() => {});
+        if (cancelled) return;
+
+        const unshown = getUnshownAlerts();
+        const urgentAlert = unshown.find(
+          (a) => a.urgency === "high" || a.urgency === "medium"
+        );
+
+        if (shouldShowBriefing()) {
+          const briefing = await generateBriefing();
+          if (cancelled) return;
+
+          const parts: string[] = [briefing.greeting];
+
+          if (briefing.summary) {
+            parts.push(briefing.summary);
+          }
+          if (briefing.financial) {
+            parts.push(briefing.financial);
+          }
+
+          if (briefing.priorities.length > 0) {
+            parts.push("Prioridades: " + briefing.priorities.join(", ") + ".");
+          }
+
+          if (briefing.habits.length > 0) {
+            parts.push("Hábitos: " + briefing.habits.join(", ") + ".");
+          }
+
+          if (briefing.insights.length > 0) {
+            parts.push(briefing.insights.join(". ") + ".");
+          }
+
+          if (briefing.suggestion) {
+            parts.push(briefing.suggestion);
+          }
+
+          if (urgentAlert) {
+            parts.push(`[Alerta: ${urgentAlert.title}] ${urgentAlert.description}`);
+            markAlertShown(urgentAlert.id);
+          }
+
+          if (briefing.question) {
+            parts.push(briefing.question);
+          }
+
+          setAiResponse(parts.join(" "));
+          if (briefing.suggestion) setSuggestion(briefing.suggestion);
+          if (briefing.question) setFollowUp(briefing.question);
+
+          markBriefingShown();
+        } else if (urgentAlert) {
+          setAiResponse(`[Alerta: ${urgentAlert.title}] ${urgentAlert.description}`);
+          markAlertShown(urgentAlert.id);
+        }
+      } catch {
+        /* briefing e alertas não bloqueiam o app */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const enqueueSpeech = useCallback((text: string) => {
