@@ -49,10 +49,10 @@ function hasRestUrl(): boolean {
 }
 
 export function isObsidianAvailable(): boolean {
-  // 1. Ambiente Tauri: acesso direto ao sistema de arquivos
   if (hasTauri()) return true;
-  // 2. Obsidian Local REST API configurado (via .env)
   if (hasRestUrl()) return true;
+  // Check enabled flag — NEXT_PUBLIC_ vars available in both server and client
+  if (process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED === "true") return true;
   return false;
 }
 
@@ -407,8 +407,19 @@ export async function saveRecordToObsidian(
   try {
     const content = recordToObsidianNote(record);
     const path = getObsidianPath(record);
-    return await writeObsidianNote(path, content);
-  } catch {
+    if (process.env.NODE_ENV === "development") {
+      console.debug("[Obsidian] Saving record:", record.id, record.type, record.title);
+      console.debug("[Obsidian] Path:", path);
+    }
+    const result = await writeObsidianNote(path, content);
+    if (process.env.NODE_ENV === "development") {
+      console.debug("[Obsidian] PUT result:", result);
+    }
+    return result;
+  } catch (err) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[Obsidian] Save failed:", err);
+    }
     return false;
   }
 }
@@ -461,13 +472,23 @@ export async function writeObsidianNote(
   // Proxy server-side: a API key fica no servidor, nunca no bundle
   try {
     const encoded = encodeURIComponent(path);
-    const res = await fetch(`/api/obsidian/vault/${encoded}`, {
+    const url = `/api/obsidian/vault/${encoded}`;
+    if (process.env.NODE_ENV === "development") {
+      console.debug("[Obsidian] PUT", url);
+    }
+    const res = await fetch(url, {
       method: "PUT",
       headers: { "Content-Type": "text/markdown; charset=utf-8" },
       body: content,
     });
+    if (process.env.NODE_ENV === "development") {
+      console.debug("[Obsidian] PUT response:", res.status, res.ok);
+    }
     return res.ok;
-  } catch {
+  } catch (err) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[Obsidian] PUT network error:", err);
+    }
     return false;
   }
 }

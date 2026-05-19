@@ -51,9 +51,14 @@ export async function saveRecord(record: CortexRecord): Promise<void> {
   // Gera nota .md no vault Obsidian (via adapter oficial)
   // Falha silenciosa se Obsidian estiver indisponível
   try {
+    if (process.env.NODE_ENV === "development") {
+      console.debug("[Obsidian] storageProvider calling saveRecordToObsidian:", record.id);
+    }
     await saveRecordToObsidian(record);
-  } catch {
-    // Obsidian offline — keep local copy
+  } catch (err) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[Obsidian] storageProvider saveRecordToObsidian error:", err);
+    }
   }
 
   indexRecordInBackground(record);

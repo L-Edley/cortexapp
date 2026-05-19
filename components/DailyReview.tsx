@@ -9,6 +9,7 @@ import {
   getRecordsByType,
 } from "@/lib/storageProvider";
 import { saveRecord } from "@/lib/storageProvider";
+import { generateRecordId } from "@/lib/id";
 import { shouldShowDescription } from "@/lib/records/display";
 
 export default function DailyReview() {
@@ -73,7 +74,7 @@ export default function DailyReview() {
     setGenerating(false);
 
     const reviewRecord: CortexRecord = {
-      id: crypto.randomUUID?.() ?? Date.now().toString(),
+      id: generateRecordId("daily_review"),
       type: "daily_review",
       title: `Revisão diária — ${new Date().toLocaleDateString("pt-BR")}`,
       description: lines.join("\n"),

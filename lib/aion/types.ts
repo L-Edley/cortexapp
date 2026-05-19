@@ -7,7 +7,8 @@ export type AionAction =
   | "create_record"
   | "ask_clarification"
   | "suggest_next_step"
-  | "read_dashboard";
+  | "read_dashboard"
+  | "save_memory";
 
 export type AionVoiceMode = "off" | "confirmations" | "assistant";
 
@@ -59,6 +60,7 @@ export type AionRequest = {
   recentRecords?: CortexRecord[];
   voiceMode?: AionVoiceMode;
   brainContextFromClient?: Partial<AionBrainItem>[];
+  profileContext?: string;
 };
 
 export type AionResponse = {

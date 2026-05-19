@@ -24,6 +24,7 @@ const VALID_ACTIONS: AionAction[] = [
   "ask_clarification",
   "suggest_next_step",
   "read_dashboard",
+  "save_memory",
 ];
 
 const LEARN_PATTERNS =
@@ -129,10 +130,12 @@ function normalizeAionDecision(
     reply = "Pode me dar mais detalhes? Quero ajudar da melhor forma.";
   } else if (action === "web_search") {
     reply = "Deixa eu pesquisar isso pra você.";
-  } else if (action === "read_dashboard") {
-    reply = "Vou ver seus registros recentes.";
-  } else {
-    reply = userMessage.length > 0 ? `Entendi: "${userMessage}"` : "Estou aqui. Como posso ajudar?";
+    } else if (action === "read_dashboard") {
+      reply = "Vou ver seus registros recentes.";
+    } else if (action === "save_memory") {
+      reply = "Anotado. Vou guardar essa informação.";
+    } else {
+      reply = userMessage.length > 0 ? `Entendi: "${userMessage}"` : "Estou aqui. Como posso ajudar?";
   }
 
   let voiceReply: string;
@@ -273,7 +276,8 @@ async function callAI(
       decision.action !== "suggest_next_step" &&
       decision.action !== "ask_clarification" &&
       decision.action !== "read_dashboard" &&
-      decision.action !== "web_search"
+      decision.action !== "web_search" &&
+      decision.action !== "save_memory"
     ) {
       console.warn(`[AION] schema inválido: action desconhecida (provider: ${name})`);
       return { decision: null, reason: "invalid_schema_after_normalize", providerUsed: name };
@@ -373,6 +377,7 @@ function buildUserPrompt(params: {
   currentView?: string;
   contextSummary: string;
   conversationContext: string;
+  profileContext?: string;
 }): string {
   const today = new Date();
   const y = today.getFullYear();
@@ -383,6 +388,10 @@ function buildUserPrompt(params: {
   const parts: string[] = [];
 
   parts.push(`CURRENT_DATE=${currentDate}\n`);
+
+  if (params.profileContext) {
+    parts.push(`${params.profileContext}\n`);
+  }
 
   if (params.contextSummary) {
     parts.push(
@@ -405,7 +414,7 @@ function buildUserPrompt(params: {
       `{\n` +
       `  "reply": "sua resposta como secretária — natural, útil, até 4 frases",\n` +
       `  "voiceReply": "versão ultra curta (1 frase) para ser falada em voz alta",\n` +
-      `  "action": "none" | "web_search" | "create_record" | "ask_clarification" | "suggest_next_step" | "read_dashboard",\n` +
+      `  "action": "none" | "web_search" | "create_record" | "ask_clarification" | "suggest_next_step" | "read_dashboard" | "save_memory",\n` +
       `  "searchQuery": null | "termo de busca (apenas se action for web_search)",\n` +
       `  "record": null | { "type": "task"|"expense"|"idea"|"project_note"|"daily_review"|"focus_request"|"unknown", "title": "string", "description": "string", "priority": "low"|"medium"|"high", "project": null|string, "amount": null|number, "category": null|string, "dueDate": null|"YYYY-MM-DD", "nextAction": "string" },\n` +
       `  "suggestion": null | "dica prática ou recomendação curta",\n` +
@@ -420,6 +429,7 @@ function buildUserPrompt(params: {
       `- Se action for "ask_clarification", "reply" deve perguntar o que falta.\n` +
       `- Se action for "none" ou "suggest_next_step" ou "read_dashboard" ou "ask_clarification", "record" deve ser null.\n` +
       `- "tips" é opcional, use quando detectar um padrão útil (ex: muitas ideias, poucas tarefas).\n` +
+      `- Se action for "save_memory", "reply" deve confirmar que a informação foi guardada e o "record" deve conter { type: "idea", title: "o conteúdo a ser memorizado" }.\n` +
       `- "confidence" reflete o quão certo você está sobre a ação (0.0 = incerto, 1.0 = certo).\n` +
       `- "voiceReply" deve ser no máximo UMA frase, curta, para TTS.\n` +
       `- "suggestion" deve ser prática e acionável, como uma secretária daria.`
@@ -453,8 +463,9 @@ export async function runAgent(params: {
   recentRecords?: CortexRecord[];
   currentView?: string;
   brainContextFromClient?: Partial<AionBrainItem>[];
+  profileContext?: string;
 }): Promise<AionResponse> {
-  const { message, recentRecords, currentView, brainContextFromClient } = params;
+  const { message, recentRecords, currentView, brainContextFromClient, profileContext } = params;
 
   console.log("[AION] ===== NOVA REQUISIÇÃO =====");
   console.log("[AION] mensagem:", message);
@@ -537,6 +548,7 @@ export async function runAgent(params: {
     currentView,
     contextSummary,
     conversationContext,
+    profileContext: profileContext || undefined,
   });
 
   const { decision, reason, providerUsed } = await callAIWithFallback(

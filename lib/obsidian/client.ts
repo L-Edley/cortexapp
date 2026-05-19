@@ -16,8 +16,11 @@ export function getObsidianConfig(): ObsidianClientConfig {
     (isServer()
       ? process.env.OBSIDIAN_REST_URL
       : process.env.NEXT_PUBLIC_OBSIDIAN_REST_URL) ?? null;
+  const enabled = isClient()
+    ? process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED === "true"
+    : !!restUrl;
   return {
-    enabled: !!restUrl,
+    enabled,
     baseUrl: restUrl || "http://127.0.0.1:27123",
   };
 }

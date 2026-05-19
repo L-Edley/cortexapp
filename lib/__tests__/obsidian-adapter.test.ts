@@ -309,7 +309,10 @@ describe("saveRecordToObsidian / updateRecordInObsidian / deleteRecordFromObsidi
     envRestore.OBSIDIAN_REST_URL = process.env.OBSIDIAN_REST_URL;
     envRestore.NEXT_PUBLIC_OBSIDIAN_REST_URL =
       process.env.NEXT_PUBLIC_OBSIDIAN_REST_URL;
+    envRestore.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED =
+      process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED;
     process.env.NEXT_PUBLIC_OBSIDIAN_REST_URL = "http://127.0.0.1:27123";
+    delete process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED;
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -317,6 +320,8 @@ describe("saveRecordToObsidian / updateRecordInObsidian / deleteRecordFromObsidi
     process.env.OBSIDIAN_REST_URL = envRestore.OBSIDIAN_REST_URL;
     process.env.NEXT_PUBLIC_OBSIDIAN_REST_URL =
       envRestore.NEXT_PUBLIC_OBSIDIAN_REST_URL;
+    process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED =
+      envRestore.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED;
     vi.unstubAllGlobals();
   });
 
@@ -429,8 +434,11 @@ describe("saveRecordToObsidian — sem config", () => {
     envRestore.OBSIDIAN_REST_URL = process.env.OBSIDIAN_REST_URL;
     envRestore.NEXT_PUBLIC_OBSIDIAN_REST_URL =
       process.env.NEXT_PUBLIC_OBSIDIAN_REST_URL;
+    envRestore.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED =
+      process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED;
     delete process.env.OBSIDIAN_REST_URL;
     delete process.env.NEXT_PUBLIC_OBSIDIAN_REST_URL;
+    delete process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED;
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -438,6 +446,8 @@ describe("saveRecordToObsidian — sem config", () => {
     process.env.OBSIDIAN_REST_URL = envRestore.OBSIDIAN_REST_URL;
     process.env.NEXT_PUBLIC_OBSIDIAN_REST_URL =
       envRestore.NEXT_PUBLIC_OBSIDIAN_REST_URL;
+    process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED =
+      envRestore.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED;
     vi.unstubAllGlobals();
   });
 
@@ -446,5 +456,17 @@ describe("saveRecordToObsidian — sem config", () => {
     const ok = await saveRecordToObsidian(makeRecord());
     expect(ok).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("chama fetch quando NEXT_PUBLIC_OBSIDIAN_REST_ENABLED=true (sem URL)", async () => {
+    process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED = "true";
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
+    const { saveRecordToObsidian } = await import("@/lib/obsidian-adapter");
+    const ok = await saveRecordToObsidian(makeRecord());
+    expect(ok).toBe(true);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/obsidian/vault/"),
+      expect.objectContaining({ method: "PUT" })
+    );
   });
 });

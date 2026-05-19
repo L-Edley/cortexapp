@@ -12,9 +12,8 @@ import {
 } from "lucide-react";
 import { getRecords } from "@/lib/storage";
 import { LocalStorageAionAdapter, syncObsidianToAion } from "@/lib/aion/sync";
-import { checkObsidianConnection, getObsidianConfig } from "@/lib/obsidian/client";
 
-type ObsidianStatus = "checking" | "configured" | "online" | "offline" | "not_configured";
+type ObsidianStatus = "checking" | "disabled" | "online" | "offline" | "not_configured";
 
 type Stats = {
   cortexRecords: number;
@@ -79,21 +78,38 @@ export default function SyncStatusPanel() {
     setLoading(true);
     setSyncResult(null);
 
-    const config = getObsidianConfig();
-    let obsidianStatus: ObsidianStatus = "not_configured";
-    if (!config.enabled) {
-      obsidianStatus = "not_configured";
-    } else {
-      obsidianStatus = "configured";
-      try {
-        const online = await checkObsidianConnection();
-        obsidianStatus = online ? "online" : "offline";
-      } catch {
-        obsidianStatus = "offline";
-      }
+    const isEnabled =
+      typeof process !== "undefined" &&
+      process.env?.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED === "true";
+
+    if (!isEnabled) {
+      const base = computeStats(adapter, 0, "disabled", "http://127.0.0.1:27123");
+      const detailed = await computeDetailedStats(adapter);
+      setStats({ ...base, ...detailed });
+      setLoading(false);
+      return;
     }
 
-    const base = computeStats(adapter, 0, obsidianStatus, config.baseUrl);
+    let obsidianStatus: ObsidianStatus = "checking";
+    let obsidianUrl = "http://127.0.0.1:27123";
+
+    try {
+      const res = await fetch("/api/obsidian/health");
+      const data = await res.json();
+      if (process.env.NODE_ENV === "development") {
+        console.debug("[Obsidian] Health check response:", data);
+      }
+      obsidianUrl = data.url || obsidianUrl;
+      if (data.configured === false) {
+        obsidianStatus = "not_configured";
+      } else {
+        obsidianStatus = data.online === true ? "online" : "offline";
+      }
+    } catch {
+      obsidianStatus = "offline";
+    }
+
+    const base = computeStats(adapter, 0, obsidianStatus, obsidianUrl);
     const detailed = await computeDetailedStats(adapter);
     setStats({ ...base, ...detailed });
     setLoading(false);
@@ -137,7 +153,6 @@ export default function SyncStatusPanel() {
     switch (stats.obsidianStatus) {
       case "online":
         return <Wifi className="w-4 h-4 text-green-400" />;
-      case "configured":
       case "checking":
         return <RefreshCw className="w-4 h-4 text-yellow-400 animate-spin" />;
       case "offline":
@@ -151,7 +166,9 @@ export default function SyncStatusPanel() {
     switch (stats.obsidianStatus) {
       case "online":
         return "Online";
-      case "configured":
+      case "disabled":
+        return "Desabilitado";
+      case "checking":
         return "Verificando...";
       case "offline":
         return "Offline";
@@ -224,7 +241,7 @@ export default function SyncStatusPanel() {
           <p className="text-sm text-zinc-200">
             Obsidian: <span className="font-medium">{statusLabel()}</span>
           </p>
-          {stats.obsidianStatus !== "not_configured" && (
+          {stats.obsidianStatus !== "not_configured" && stats.obsidianStatus !== "disabled" && (
             <p className="text-xs text-zinc-500 truncate max-w-[250px]">
               {stats.obsidianUrl}
             </p>

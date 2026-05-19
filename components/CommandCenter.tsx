@@ -1,18 +1,23 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import type { CortexRecord } from "@/lib/types";
 import { saveRecord } from "@/lib/storageProvider";
+import { generateRecordId } from "@/lib/id";
 import { retrieveRelevantBrainContext, prepareBrainContextForApi } from "@/lib/aion/brain/retrieval";
 import type { SafeBrainItem } from "@/lib/aion/brain/retrieval";
 import { learnFromInteraction } from "@/lib/aion/brain/learning";
+import { saveMemory } from "@/lib/aion/brain/memory";
+import type { AionBrainItem } from "@/lib/aion/brain/types";
 import type { RouteType } from "@/lib/aion/types";
+import { loadProfile, analyzeAndUpdateProfile } from "@/lib/aionProfile";
+import { runPatternAnalysis, buildEnhancedProfileContext } from "@/lib/aion/patterns";
 import VoiceCenter from "@/components/VoiceCenter";
 
 export default function CommandCenter() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [aiResponse, setAiResponse] = useState("SISTEMA ONLINE. AGUARDANDO COMANDOS.");
+  const [aiResponse, setAiResponse] = useState("Sistema online. Aguardando comandos.");
   const [sources, setSources] = useState<Array<{ title: string; url: string }>>([]);
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [followUp, setFollowUp] = useState<string | null>(null);
@@ -20,6 +25,12 @@ export default function CommandCenter() {
 
   const speechQueue = useRef<string[]>([]);
   const currentlySpeaking = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      runPatternAnalysis({ force: false }).catch(() => {});
+    }
+  }, []);
 
   const enqueueSpeech = useCallback((text: string) => {
     speechQueue.current.push(text);
@@ -89,7 +100,7 @@ export default function CommandCenter() {
     if (!msg) return;
 
     setLoading(true);
-    setAiResponse("PROCESSANDO...");
+    setAiResponse("Processando...");
     setSources([]);
     setSuggestion(null);
     setFollowUp(null);
@@ -114,12 +125,25 @@ export default function CommandCenter() {
         brainContextFromClient = undefined;
       }
 
+      let profileContext: string | undefined;
+      try {
+        const profile = await loadProfile();
+        if (profile.version > 0 || profile.userName) {
+          profileContext = buildEnhancedProfileContext(profile);
+        }
+      } catch {
+        profileContext = undefined;
+      }
+
       const payload: Record<string, unknown> = {
         message: msg,
         voiceMode: "assistant",
       };
       if (brainContextFromClient) {
         payload.brainContextFromClient = brainContextFromClient;
+      }
+      if (profileContext) {
+        payload.profileContext = profileContext;
       }
 
       const response = await fetch("/api/aion", {
@@ -148,8 +172,8 @@ export default function CommandCenter() {
         }
       }
 
-      const displayText = reply || "PROCESSADO.";
-      setAiResponse(displayText.toUpperCase());
+      const displayText = reply || "Processado.";
+      setAiResponse(displayText);
 
       if (responseSources && responseSources.length > 0) {
         setSources(responseSources);
@@ -162,6 +186,31 @@ export default function CommandCenter() {
         enqueueSpeech(voiceReply);
       }
 
+      if (action === "save_memory") {
+        const memoryContent = recordData?.title || msg;
+        const memoryItem: AionBrainItem = {
+          id: generateRecordId("note"),
+          type: "memory",
+          title: memoryContent,
+          content: msg,
+          tags: ["auto_saved"],
+          confidence: 0.9,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          source: "user",
+          accessCount: 0,
+          lastUsedAt: new Date().toISOString(),
+        };
+        try {
+          const saved = await saveMemory(memoryItem);
+          if (saved) {
+            console.log("[AION] Memória salva via save_memory:", saved.id);
+          }
+        } catch (err) {
+          console.warn("[AION] Falha ao salvar memória:", err);
+        }
+      }
+
       if (action === "create_record" && recordData) {
         const normalizedDescription =
           recordData.description &&
@@ -171,7 +220,7 @@ export default function CommandCenter() {
             : "";
 
         const record: CortexRecord = {
-          id: crypto.randomUUID?.() ?? Date.now().toString(),
+          id: generateRecordId(recordData.type),
           type: recordData.type,
           title: recordData.title,
           description: normalizedDescription,
@@ -187,6 +236,11 @@ export default function CommandCenter() {
         };
 
         await saveRecord(record);
+
+        try {
+          await analyzeAndUpdateProfile();
+        } catch {
+        }
       }
 
       if (learningCandidate?.shouldLearn) {
@@ -208,7 +262,7 @@ export default function CommandCenter() {
         }
       }
     } catch {
-      setAiResponse("FALHA AO PROCESSAR COMANDO. TENTE NOVAMENTE.");
+      setAiResponse("Falha ao processar comando. Tente novamente.");
     } finally {
       setLoading(false);
     }

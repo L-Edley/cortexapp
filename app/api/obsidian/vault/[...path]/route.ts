@@ -38,12 +38,20 @@ async function proxyRequest(
     headers["Content-Type"] = "text/markdown; charset=utf-8";
   }
 
+  if (process.env.NODE_ENV === "development") {
+    console.debug("[Obsidian Proxy]", method, url);
+  }
+
   try {
     const res = await fetch(url, {
       method,
       headers,
       body: method === "PUT" ? body : undefined,
     });
+
+    if (process.env.NODE_ENV === "development") {
+      console.debug("[Obsidian Proxy] response", res.status);
+    }
 
     if (method === "GET") {
       const text = await res.text();

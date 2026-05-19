@@ -275,6 +275,27 @@ function ideaResponse(message: string): AionResponse {
   };
 }
 
+function salveMemoryResponse(message: string): AionResponse {
+  const content = message
+    .replace(/^(salve|salva)\s+que\s+/i, "")
+    .trim();
+  const title = content.charAt(0).toUpperCase() + content.slice(1);
+
+  const record = makeRecord("idea", title, message, "medium", {
+    nextAction: "Revisar memória depois",
+  });
+
+  return {
+    reply: `Anotado: "${title}". Vou lembrar disso.`,
+    voiceReply: "Memória salva.",
+    action: "save_memory",
+    record,
+    confidence: 0.95,
+    fallbackUsed: false,
+    debug: debugLocal(),
+  };
+}
+
 export function smartRouter(message: string): RouteResult {
   const lower = tokens(message).trim();
 
@@ -335,6 +356,11 @@ export function smartRouter(message: string): RouteResult {
   const ideaWords = ["ideia", "pensando em", "e se", "que tal", "tive uma ideia"];
   if (ideaWords.some((i) => lower.includes(i))) {
     return { route: "local", response: ideaResponse(message) };
+  }
+
+  const memoryWords = ["salve que", "salva que"];
+  if (memoryWords.some((m) => lower.includes(m))) {
+    return { route: "local", response: salveMemoryResponse(message) };
   }
 
   return { route: "api" };

@@ -29,7 +29,6 @@ import {
   exportDashboardMarkdown,
   exportDailyNoteMarkdown,
   copyVaultReadmeToClipboard,
-  checkObsidianConnection,
   getObsidianConfig,
 } from "@/lib/obsidian";
 import SyncStatusPanel from "./SyncStatusPanel";
@@ -47,6 +46,7 @@ import {
   onAuthChange,
   getCurrentUser,
 } from "@/lib/firebase/auth";
+import { runPatternAnalysis } from "@/lib/aion/patterns";
 
 export default function SettingsView() {
   const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline">("checking");
@@ -77,6 +77,9 @@ export default function SettingsView() {
     const unsub = onAuthChange((user) => {
       setFirebaseUser(user);
     });
+    if (typeof window !== "undefined") {
+      runPatternAnalysis({ force: false }).catch(() => {});
+    }
     return () => unsub();
   }, []);
 
@@ -135,8 +138,16 @@ export default function SettingsView() {
     const config = getObsidianConfig();
     setObsidianEnabled(config.enabled);
     setObsidianUrl(config.baseUrl);
-    const online = await checkObsidianConnection();
-    setObsidianOnline(online);
+    try {
+      const res = await fetch("/api/obsidian/health");
+      const data = await res.json();
+      if (process.env.NODE_ENV === "development") {
+        console.debug("[Obsidian] Health check response:", data);
+      }
+      setObsidianOnline(data.online === true && data.configured === true);
+    } catch {
+      setObsidianOnline(false);
+    }
     setObsidianChecking(false);
   }, []);
 

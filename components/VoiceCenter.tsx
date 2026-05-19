@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { Mic, Loader2, MicOff, AlertCircle } from "lucide-react";
 import { Conversation } from "@elevenlabs/client";
 import { saveRecord } from "@/lib/storageProvider";
+import { generateRecordId } from "@/lib/id";
 import Blob from "./Blob";
 
 export default function VoiceCenter() {
@@ -71,7 +72,7 @@ export default function VoiceCenter() {
               console.log("ElevenLabs Agent solicitou criar registro:", params);
               try {
                 const record = {
-                  id: crypto.randomUUID?.() ?? Date.now().toString(),
+                  id: generateRecordId(params.type || "unknown"),
                   type: params.type || "unknown",
                   title: params.title || "Novo Registro Aion",
                   description: params.description || "",
