@@ -399,7 +399,7 @@ export function recordToObsidianNote(record: CortexRecord): string {
   return frontmatter + "\n" + body;
 }
 
-export async function saveRecordToObsidian(
+export async function exportRecordToObsidian(
   record: CortexRecord
 ): Promise<boolean> {
   if (!isObsidianAvailable()) return false;
@@ -408,7 +408,7 @@ export async function saveRecordToObsidian(
     const content = recordToObsidianNote(record);
     const path = getObsidianPath(record);
     if (process.env.NODE_ENV === "development") {
-      console.debug("[Obsidian] Saving record:", record.id, record.type, record.title);
+      console.debug("[Obsidian] Exporting record:", record.id, record.type, record.title);
       console.debug("[Obsidian] Path:", path);
     }
     const result = await writeObsidianNote(path, content);
@@ -418,13 +418,13 @@ export async function saveRecordToObsidian(
     return result;
   } catch (err) {
     if (process.env.NODE_ENV === "development") {
-      console.warn("[Obsidian] Save failed:", err);
+      console.warn("[Obsidian] Export failed:", err);
     }
     return false;
   }
 }
 
-export async function updateRecordInObsidian(
+export async function exportUpdatedRecordToObsidian(
   record: CortexRecord
 ): Promise<boolean> {
   if (!isObsidianAvailable()) return false;
@@ -438,7 +438,7 @@ export async function updateRecordInObsidian(
   }
 }
 
-export async function deleteRecordFromObsidian(
+export async function deleteExportedRecordFromObsidian(
   record: CortexRecord
 ): Promise<boolean> {
   if (!isObsidianAvailable()) return false;
@@ -512,3 +512,10 @@ export async function readObsidianNote(
     return null;
   }
 }
+
+/** @deprecated Use exportRecordToObsidian */
+export const saveRecordToObsidian = exportRecordToObsidian;
+/** @deprecated Use exportUpdatedRecordToObsidian */
+export const updateRecordInObsidian = exportUpdatedRecordToObsidian;
+/** @deprecated Use deleteExportedRecordFromObsidian */
+export const deleteRecordFromObsidian = deleteExportedRecordFromObsidian;

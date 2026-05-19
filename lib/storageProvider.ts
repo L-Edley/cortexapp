@@ -2,9 +2,9 @@ import type { CortexRecord, CortexRecordType } from "./types";
 import * as local from "./storage";
 import * as firebase from "./firebase/records";
 import {
-  saveRecordToObsidian,
-  updateRecordInObsidian,
-  deleteRecordFromObsidian,
+  exportRecordToObsidian,
+  exportUpdatedRecordToObsidian,
+  deleteExportedRecordFromObsidian,
 } from "@/lib/obsidian-adapter";
 import {
   indexRecordInBackground,
@@ -13,10 +13,15 @@ import {
 
 // ============================================
 // STORAGE PROVIDER — Zero-Cost Architecture
-// localStorage (primário) + Firebase + Obsidian
+// localStorage (primário) + Cloud sync (futuro) + Obsidian (export)
 // ============================================
 
 export type StorageMode = "local" | "firebase" | "hybrid";
+
+function obsidianExportEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  return process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED === "true";
+}
 
 function firebaseAvailable(): boolean {
   return (
@@ -48,19 +53,10 @@ export async function saveRecord(record: CortexRecord): Promise<void> {
       // Firebase offline — keep local copy
     }
   }
-  // Gera nota .md no vault Obsidian (via adapter oficial)
-  // Falha silenciosa se Obsidian estiver indisponível
-  try {
-    if (process.env.NODE_ENV === "development") {
-      console.debug("[Obsidian] storageProvider calling saveRecordToObsidian:", record.id);
-    }
-    await saveRecordToObsidian(record);
-  } catch (err) {
-    if (process.env.NODE_ENV === "development") {
-      console.warn("[Obsidian] storageProvider saveRecordToObsidian error:", err);
-    }
+  // Exportação opcional para Markdown no vault Obsidian
+  if (obsidianExportEnabled()) {
+    exportRecordToObsidian(record).catch(() => {});
   }
-
   indexRecordInBackground(record);
 }
 
@@ -77,14 +73,11 @@ export async function updateRecord(
       // offline
     }
   }
-  // Atualiza nota no vault Obsidian (via adapter oficial)
-  try {
-    const updated = { ...local.getRecordsById(id)!, ...patch };
-    await updateRecordInObsidian(updated);
-  } catch {
-    // offline
+  // Exportação opcional de atualização para o vault
+  const updated = { ...local.getRecordsById(id)!, ...patch };
+  if (obsidianExportEnabled()) {
+    exportUpdatedRecordToObsidian(updated).catch(() => {});
   }
-
   const patched = local.getRecordsById(id);
   if (patched) indexRecordInBackground(patched);
 }
@@ -99,14 +92,11 @@ export async function deleteRecord(id: string): Promise<void> {
       // offline
     }
   }
-  // Remove nota no vault Obsidian (via adapter oficial)
-  try {
-    const record = local.getRecordsById(id);
-    if (record) await deleteRecordFromObsidian(record);
-  } catch {
-    // offline
+  // Remoção opcional da nota no vault
+  const record = local.getRecordsById(id);
+  if (record && obsidianExportEnabled()) {
+    deleteExportedRecordFromObsidian(record).catch(() => {});
   }
-
   deleteVectorInBackground(id);
 }
 
@@ -189,25 +179,27 @@ export async function migrateLocalToFirebase(): Promise<{
 
 export function getStorageLabel(): string {
   const mode = getMode();
+  const obsidian = obsidianExportEnabled() ? " + Exportação Obsidian" : "";
   switch (mode) {
     case "firebase":
-      return "Firebase";
+      return "Firebase" + obsidian;
     case "hybrid":
-      return "Firebase + localStorage + Obsidian";
+      return "Firebase + localStorage" + obsidian;
     default:
-      return "localStorage";
+      return "localStorage" + obsidian;
   }
 }
 
 export function getStorageLabelForIndicator(): string {
   const mode = getMode();
+  const obsidian = obsidianExportEnabled() ? " + exportação Obsidian" : "";
   switch (mode) {
     case "firebase":
-      return "Sincronizado com Firebase";
+      return "Sincronizado com Firebase" + obsidian;
     case "hybrid":
-      return "Sincronizado com Firebase + Obsidian";
+      return "Sincronizado com Firebase + localStorage" + obsidian;
     default:
-      return "Salvo no localStorage";
+      return "Salvo no localStorage" + obsidian;
   }
 }
 

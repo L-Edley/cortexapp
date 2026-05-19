@@ -302,7 +302,7 @@ describe("readObsidianNote", () => {
 // Save / Update / Delete — dependem de isObsidianAvailable
 // ---------------------------------------------------------------------------
 
-describe("saveRecordToObsidian / updateRecordInObsidian / deleteRecordFromObsidian", () => {
+describe("exportRecordToObsidian / exportUpdatedRecordToObsidian / deleteExportedRecordFromObsidian", () => {
   const envRestore: Record<string, string | undefined> = {};
 
   beforeEach(() => {
@@ -325,11 +325,11 @@ describe("saveRecordToObsidian / updateRecordInObsidian / deleteRecordFromObsidi
     vi.unstubAllGlobals();
   });
 
-  it("saveRecordToObsidian chama PUT no path baseado em id", async () => {
+  it("exportRecordToObsidian chama PUT no path baseado em id", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
 
-    const { saveRecordToObsidian } = await import("@/lib/obsidian-adapter");
-    const ok = await saveRecordToObsidian(makeRecord());
+    const { exportRecordToObsidian } = await import("@/lib/obsidian-adapter");
+    const ok = await exportRecordToObsidian(makeRecord());
     expect(ok).toBe(true);
     expect(fetch).toHaveBeenCalledWith(
       "/api/obsidian/vault/Tarefas%2Frec-123.md",
@@ -337,11 +337,11 @@ describe("saveRecordToObsidian / updateRecordInObsidian / deleteRecordFromObsidi
     );
   });
 
-  it("saveRecordToObsidian gera path Financeiro/{id}.md para expense", async () => {
+  it("exportRecordToObsidian gera path Financeiro/{id}.md para expense", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
 
-    const { saveRecordToObsidian } = await import("@/lib/obsidian-adapter");
-    await saveRecordToObsidian(
+    const { exportRecordToObsidian } = await import("@/lib/obsidian-adapter");
+    await exportRecordToObsidian(
       makeRecord({ type: "expense", id: "exp-456" })
     );
     expect(fetch).toHaveBeenCalledWith(
@@ -350,11 +350,11 @@ describe("saveRecordToObsidian / updateRecordInObsidian / deleteRecordFromObsidi
     );
   });
 
-  it("saveRecordToObsidian gera path Ideias/{id}.md para idea", async () => {
+  it("exportRecordToObsidian gera path Ideias/{id}.md para idea", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
 
-    const { saveRecordToObsidian } = await import("@/lib/obsidian-adapter");
-    await saveRecordToObsidian(makeRecord({ type: "idea", id: "idea-789" }));
+    const { exportRecordToObsidian } = await import("@/lib/obsidian-adapter");
+    await exportRecordToObsidian(makeRecord({ type: "idea", id: "idea-789" }));
     expect(fetch).toHaveBeenCalledWith(
       "/api/obsidian/vault/Ideias%2Fidea-789.md",
       expect.anything()
@@ -364,10 +364,10 @@ describe("saveRecordToObsidian / updateRecordInObsidian / deleteRecordFromObsidi
   it("mudar title não muda o path", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
 
-    const { saveRecordToObsidian } = await import("@/lib/obsidian-adapter");
-    await saveRecordToObsidian(makeRecord({ id: "fixo", title: "Original" }));
+    const { exportRecordToObsidian } = await import("@/lib/obsidian-adapter");
+    await exportRecordToObsidian(makeRecord({ id: "fixo", title: "Original" }));
     const call1 = (fetch as ReturnType<typeof vi.fn>).mock.lastCall[0];
-    await saveRecordToObsidian(makeRecord({ id: "fixo", title: "Alterado" }));
+    await exportRecordToObsidian(makeRecord({ id: "fixo", title: "Alterado" }));
     const call2 = (fetch as ReturnType<typeof vi.fn>).mock.lastCall[0];
     expect(call1).toBe(call2);
   });
@@ -375,10 +375,10 @@ describe("saveRecordToObsidian / updateRecordInObsidian / deleteRecordFromObsidi
   it("dois registros com mesmo title geram paths diferentes", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
 
-    const { saveRecordToObsidian } = await import("@/lib/obsidian-adapter");
-    await saveRecordToObsidian(makeRecord({ id: "aaa", title: "Mesmo" }));
+    const { exportRecordToObsidian } = await import("@/lib/obsidian-adapter");
+    await exportRecordToObsidian(makeRecord({ id: "aaa", title: "Mesmo" }));
     const call1 = (fetch as ReturnType<typeof vi.fn>).mock.lastCall[0];
-    await saveRecordToObsidian(makeRecord({ id: "bbb", title: "Mesmo" }));
+    await exportRecordToObsidian(makeRecord({ id: "bbb", title: "Mesmo" }));
     const call2 = (fetch as ReturnType<typeof vi.fn>).mock.lastCall[0];
     expect(call1).not.toBe(call2);
   });
@@ -386,17 +386,17 @@ describe("saveRecordToObsidian / updateRecordInObsidian / deleteRecordFromObsidi
   it("falha no Obsidian não lança exceção — retorna false", async () => {
     vi.mocked(fetch).mockRejectedValue(new Error("offline"));
 
-    const { saveRecordToObsidian } = await import("@/lib/obsidian-adapter");
+    const { exportRecordToObsidian } = await import("@/lib/obsidian-adapter");
     await expect(
-      saveRecordToObsidian(makeRecord())
+      exportRecordToObsidian(makeRecord())
     ).resolves.toBe(false);
   });
 
-  it("updateRecordInObsidian chama PUT no path correto", async () => {
+  it("exportUpdatedRecordToObsidian chama PUT no path correto", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
 
-    const { updateRecordInObsidian } = await import("@/lib/obsidian-adapter");
-    const ok = await updateRecordInObsidian(makeRecord());
+    const { exportUpdatedRecordToObsidian } = await import("@/lib/obsidian-adapter");
+    const ok = await exportUpdatedRecordToObsidian(makeRecord());
     expect(ok).toBe(true);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("Tarefas%2Frec-123.md"),
@@ -404,11 +404,11 @@ describe("saveRecordToObsidian / updateRecordInObsidian / deleteRecordFromObsidi
     );
   });
 
-  it("deleteRecordFromObsidian chama DELETE no path correto", async () => {
+  it("deleteExportedRecordFromObsidian chama DELETE no path correto", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
 
-    const { deleteRecordFromObsidian } = await import("@/lib/obsidian-adapter");
-    const ok = await deleteRecordFromObsidian(makeRecord());
+    const { deleteExportedRecordFromObsidian } = await import("@/lib/obsidian-adapter");
+    const ok = await deleteExportedRecordFromObsidian(makeRecord());
     expect(ok).toBe(true);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("Tarefas%2Frec-123.md"),
@@ -416,18 +416,18 @@ describe("saveRecordToObsidian / updateRecordInObsidian / deleteRecordFromObsidi
     );
   });
 
-  it("deleteRecordFromObsidian aceita 404 como sucesso", async () => {
+  it("deleteExportedRecordFromObsidian aceita 404 como sucesso", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 404 }));
 
-    const { deleteRecordFromObsidian } = await import("@/lib/obsidian-adapter");
-    const ok = await deleteRecordFromObsidian(makeRecord());
+    const { deleteExportedRecordFromObsidian } = await import("@/lib/obsidian-adapter");
+    const ok = await deleteExportedRecordFromObsidian(makeRecord());
     expect(ok).toBe(true);
   });
 
 });
 
 // Teste isolado: sem env vars configuradas
-describe("saveRecordToObsidian — sem config", () => {
+describe("exportRecordToObsidian — sem config", () => {
   const envRestore: Record<string, string | undefined> = {};
 
   beforeEach(() => {
@@ -452,10 +452,52 @@ describe("saveRecordToObsidian — sem config", () => {
   });
 
   it("retorna false sem chamar fetch se Obsidian não está configurado", async () => {
-    const { saveRecordToObsidian } = await import("@/lib/obsidian-adapter");
-    const ok = await saveRecordToObsidian(makeRecord());
+    const { exportRecordToObsidian } = await import("@/lib/obsidian-adapter");
+    const ok = await exportRecordToObsidian(makeRecord());
     expect(ok).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("desabilitado com NEXT_PUBLIC_OBSIDIAN_REST_ENABLED=false", async () => {
+    process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED = "false";
+    const { exportRecordToObsidian } = await import("@/lib/obsidian-adapter");
+    const ok = await exportRecordToObsidian(makeRecord());
+    expect(ok).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("aliases deprecated ainda funcionam", () => {
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_OBSIDIAN_REST_URL = "http://127.0.0.1:27123";
+    delete process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED;
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    delete process.env.NEXT_PUBLIC_OBSIDIAN_REST_URL;
+    vi.unstubAllGlobals();
+  });
+
+  it("saveRecordToObsidian alias funciona como exportRecordToObsidian", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
+    const mod = await import("@/lib/obsidian-adapter");
+    const ok = await mod.saveRecordToObsidian(makeRecord());
+    expect(ok).toBe(true);
+  });
+
+  it("updateRecordInObsidian alias funciona como exportUpdatedRecordToObsidian", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
+    const mod = await import("@/lib/obsidian-adapter");
+    const ok = await mod.updateRecordInObsidian(makeRecord());
+    expect(ok).toBe(true);
+  });
+
+  it("deleteRecordFromObsidian alias funciona como deleteExportedRecordFromObsidian", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 200 }));
+    const mod = await import("@/lib/obsidian-adapter");
+    const ok = await mod.deleteRecordFromObsidian(makeRecord());
+    expect(ok).toBe(true);
   });
 
   it("chama fetch quando NEXT_PUBLIC_OBSIDIAN_REST_ENABLED=true (sem URL)", async () => {

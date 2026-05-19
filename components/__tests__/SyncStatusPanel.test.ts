@@ -74,7 +74,7 @@ describe("SyncStatusPanel", () => {
     renderPanel();
 
     await waitFor(() => {
-      expect(screen.getByText("Sync Aion")).toBeTruthy();
+      expect(screen.getByText("Exportação Obsidian")).toBeTruthy();
     });
 
     await waitFor(() => {
@@ -132,7 +132,7 @@ describe("SyncStatusPanel", () => {
     renderPanel();
 
     await waitFor(() => {
-      expect(screen.getByText("Sync Aion")).toBeTruthy();
+      expect(screen.getByText("Exportação Obsidian")).toBeTruthy();
     });
 
     mockHealthResponse({ configured: true, online: true });
@@ -149,7 +149,7 @@ describe("SyncStatusPanel", () => {
     renderPanel();
 
     await waitFor(() => {
-      expect(screen.getByText("Sync Aion")).toBeTruthy();
+      expect(screen.getByText("Exportação Obsidian")).toBeTruthy();
     });
 
     const btn = screen.getByText("Sincronizar agora");
@@ -163,7 +163,7 @@ describe("SyncStatusPanel", () => {
     renderPanel();
 
     await waitFor(() => {
-      expect(screen.getByText("Sync Aion")).toBeTruthy();
+      expect(screen.getByText("Exportação Obsidian")).toBeTruthy();
     });
 
     mockSync.mockRejectedValue(new Error("erro de teste"));
@@ -183,7 +183,7 @@ describe("SyncStatusPanel", () => {
     renderPanel();
 
     await waitFor(() => {
-      expect(screen.getByText("Sync Aion")).toBeTruthy();
+      expect(screen.getByText("Exportação Obsidian")).toBeTruthy();
     });
 
     const btn = screen.getByText("Limpar Aion");
@@ -197,7 +197,7 @@ describe("SyncStatusPanel", () => {
     renderPanel();
 
     await waitFor(() => {
-      expect(screen.getByText("Sync Aion")).toBeTruthy();
+      expect(screen.getByText("Exportação Obsidian")).toBeTruthy();
     });
 
     expect(screen.getByText("Não configurado")).toBeTruthy();

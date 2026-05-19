@@ -11,9 +11,9 @@ const {
 } = vi.hoisted(() => ({
   mockSaveRecord: vi.fn(),
   mockFirebaseSave: vi.fn(),
-  mockAdapterSave: vi.fn(),
-  mockAdapterUpdate: vi.fn(),
-  mockAdapterDelete: vi.fn(),
+  mockAdapterSave: vi.fn().mockResolvedValue(undefined),
+  mockAdapterUpdate: vi.fn().mockResolvedValue(undefined),
+  mockAdapterDelete: vi.fn().mockResolvedValue(undefined),
   mockGetRecordsById: vi.fn(),
 }));
 
@@ -47,6 +47,9 @@ vi.mock("@/lib/firebase/records", () => ({
 }));
 
 vi.mock("@/lib/obsidian-adapter", () => ({
+  exportRecordToObsidian: mockAdapterSave,
+  exportUpdatedRecordToObsidian: mockAdapterUpdate,
+  deleteExportedRecordFromObsidian: mockAdapterDelete,
   saveRecordToObsidian: mockAdapterSave,
   updateRecordInObsidian: mockAdapterUpdate,
   deleteRecordFromObsidian: mockAdapterDelete,
@@ -103,6 +106,7 @@ describe("storageProvider — after Obsidian consolidation", () => {
       writable: true,
     });
     process.env.NEXT_PUBLIC_STORAGE_MODE = "local";
+    process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED = "true";
     delete process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
     delete process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   });

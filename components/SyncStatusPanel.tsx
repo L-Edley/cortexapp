@@ -185,9 +185,9 @@ export default function SyncStatusPanel() {
           <RefreshCw className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h3 className="text-base font-semibold text-zinc-100">Sync Aion</h3>
+          <h3 className="text-base font-semibold text-zinc-100">Exportação Obsidian</h3>
           <p className="text-xs text-zinc-500">
-            Sincronização com Obsidian e processamento Aion
+            Exportação automática de registros para Markdown
           </p>
         </div>
       </div>
@@ -239,7 +239,7 @@ export default function SyncStatusPanel() {
         {statusIcon()}
         <div>
           <p className="text-sm text-zinc-200">
-            Obsidian: <span className="font-medium">{statusLabel()}</span>
+            Exportação: <span className="font-medium">{statusLabel()}</span>
           </p>
           {stats.obsidianStatus !== "not_configured" && stats.obsidianStatus !== "disabled" && (
             <p className="text-xs text-zinc-500 truncate max-w-[250px]">

@@ -259,9 +259,9 @@ export default function SettingsView() {
             <Database className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-zinc-100">Obsidian Vault Sync</h2>
+            <h2 className="text-lg font-semibold text-zinc-100">Obsidian Export</h2>
             <p className="text-sm text-zinc-500">
-              Sincronização opcional com vault Obsidian via Local REST API
+              Exportação opcional de registros como Markdown no vault
             </p>
           </div>
         </div>
@@ -285,7 +285,7 @@ export default function SettingsView() {
                   )}
                 </div>
                 <div>
-                  <p className="text-sm text-zinc-200">Status Obsidian REST</p>
+                  <p className="text-sm text-zinc-200">Status da exportação Obsidian</p>
                   <p className="text-xs text-zinc-500">
                     {obsidianChecking
                       ? "Verificando..."
@@ -315,7 +315,7 @@ export default function SettingsView() {
                 <p className="text-sm text-zinc-200">Storage atual</p>
                 <p className="text-xs text-zinc-500">
                   {obsidianOnline === true
-                    ? "localStorage + Obsidian vault"
+                    ? "localStorage + exportação Obsidian"
                     : "localStorage"}
                 </p>
               </div>

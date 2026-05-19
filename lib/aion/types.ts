@@ -1,5 +1,6 @@
 import type { CortexApiResponse, CortexRecord } from "@/lib/types";
 import type { AionBrainItem } from "./brain/types";
+import type { AionContextDebug } from "@/lib/aionContext";
 
 export type AionAction =
   | "none"
@@ -82,6 +83,8 @@ export type AionResponse = {
     model: string;
     fallbackUsed: boolean;
     fallbackReason?: AionFallbackReason;
+    ollamaAvailable?: boolean;
+    contextDebug?: AionContextDebug;
     brainItemsUsed?: AionBrainItem[];
     brainItemsCount?: number;
     learnedNewItem?: boolean;

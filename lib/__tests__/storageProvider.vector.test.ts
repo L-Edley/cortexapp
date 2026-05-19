@@ -38,9 +38,12 @@ vi.mock("@/lib/firebase/records", () => ({
 }));
 
 vi.mock("@/lib/obsidian-adapter", () => ({
-  saveRecordToObsidian: vi.fn(),
-  updateRecordInObsidian: vi.fn(),
-  deleteRecordFromObsidian: vi.fn(),
+  exportRecordToObsidian: vi.fn().mockResolvedValue(undefined),
+  exportUpdatedRecordToObsidian: vi.fn().mockResolvedValue(undefined),
+  deleteExportedRecordFromObsidian: vi.fn().mockResolvedValue(undefined),
+  saveRecordToObsidian: vi.fn().mockResolvedValue(undefined),
+  updateRecordInObsidian: vi.fn().mockResolvedValue(undefined),
+  deleteRecordFromObsidian: vi.fn().mockResolvedValue(undefined),
 }));
 
 import * as storageProvider from "@/lib/storageProvider";
@@ -79,6 +82,7 @@ describe("storageProvider — vector indexing integration", () => {
       value: {},
       writable: true,
     });
+    process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED = "true";
   });
 
   it("saveRecord chama indexRecordInBackground", async () => {
@@ -108,7 +112,7 @@ describe("storageProvider — vector indexing integration", () => {
     getItemMock.mockReturnValue(record);
 
     const obsidian = await import("@/lib/obsidian-adapter");
-    vi.mocked(obsidian.saveRecordToObsidian).mockRejectedValue(new Error("offline"));
+    vi.mocked(obsidian.exportRecordToObsidian).mockRejectedValue(new Error("offline"));
 
     await storageProvider.saveRecord(record);
     expect(mockIndexRecordInBackground).toHaveBeenCalledWith(record);
