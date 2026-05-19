@@ -1,6 +1,5 @@
 import type { CortexRecord } from "@/lib/types";
 import {
-  saveRecord as saveLocal,
   getRecords,
   updateRecord as updateLocal,
   getRecordsById,
@@ -36,16 +35,8 @@ async function shouldSyncToObsidian(): Promise<boolean> {
 export async function saveRecord(record: CortexRecord): Promise<SyncResult> {
   const result: SyncResult = { savedLocal: false, savedObsidian: false };
 
-  try {
-    saveLocal(record);
-    result.savedLocal = true;
-  } catch (e) {
-    return {
-      savedLocal: false,
-      savedObsidian: false,
-      error: `localStorage error: ${e instanceof Error ? e.message : "unknown"}`,
-    };
-  }
+  // Nota: storageProvider já salva em localStorage antes de chamar esta função.
+  // vaultStorage é apenas camada de sync com Obsidian, não duplica escrita local.
 
   const sync = await shouldSyncToObsidian();
   if (!sync) return result;

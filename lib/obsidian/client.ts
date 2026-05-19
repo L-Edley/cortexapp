@@ -1,43 +1,33 @@
+function isClient(): boolean {
+  return typeof window !== "undefined";
+}
+
+function isServer(): boolean {
+  return typeof window === "undefined";
+}
+
 export type ObsidianClientConfig = {
   enabled: boolean;
   baseUrl: string;
-  apiKey?: string;
 };
 
 export function getObsidianConfig(): ObsidianClientConfig {
+  const restUrl =
+    (isServer()
+      ? process.env.OBSIDIAN_REST_URL
+      : process.env.NEXT_PUBLIC_OBSIDIAN_REST_URL) ?? null;
   return {
-    enabled:
-      (typeof process !== "undefined"
-        ? process.env.NEXT_PUBLIC_OBSIDIAN_REST_ENABLED
-        : "false") === "true",
-    baseUrl:
-      (typeof process !== "undefined"
-        ? process.env.NEXT_PUBLIC_OBSIDIAN_REST_URL
-        : undefined) || "http://127.0.0.1:27123",
-    apiKey:
-      typeof process !== "undefined"
-        ? process.env.NEXT_PUBLIC_OBSIDIAN_API_KEY
-        : undefined,
+    enabled: !!restUrl,
+    baseUrl: restUrl || "http://127.0.0.1:27123",
   };
-}
-
-function isClient(): boolean {
-  return typeof window !== "undefined";
 }
 
 export async function obsidianRequest(
   path: string,
   options?: RequestInit
 ): Promise<Response> {
-  const config = getObsidianConfig();
-  const url = `${config.baseUrl}/${path.replace(/^\//, "")}`;
-  const headers: Record<string, string> = {
-    ...(options?.headers as Record<string, string>),
-  };
-  if (config.apiKey) {
-    headers["Authorization"] = `Bearer ${config.apiKey}`;
-  }
-  return fetch(url, { ...options, headers });
+  const url = `/api/obsidian/${path.replace(/^\//, "")}`;
+  return fetch(url, { ...options });
 }
 
 export async function checkObsidianConnection(): Promise<boolean> {
@@ -45,8 +35,9 @@ export async function checkObsidianConnection(): Promise<boolean> {
   const config = getObsidianConfig();
   if (!config.enabled) return false;
   try {
-    const res = await obsidianRequest("");
-    return res.ok;
+    const res = await fetch("/api/obsidian/health");
+    const data = await res.json();
+    return data.online === true;
   } catch {
     return false;
   }
@@ -64,9 +55,8 @@ export async function writeVaultFile(
     body: content,
   });
   if (!res.ok) {
-    throw new Error(
-      `Obsidian write failed (${res.status}): ${res.statusText}`
-    );
+    const body = await res.text();
+    throw new Error(`Obsidian write failed (${res.status}): ${body}`);
   }
 }
 
@@ -78,15 +68,12 @@ export async function deleteVaultFile(path: string): Promise<void> {
     method: "DELETE",
   });
   if (!res.ok && res.status !== 404) {
-    throw new Error(
-      `Obsidian delete failed (${res.status}): ${res.statusText}`
-    );
+    const body = await res.text();
+    throw new Error(`Obsidian delete failed (${res.status}): ${body}`);
   }
 }
 
-export async function readVaultFile(
-  path: string
-): Promise<string | null> {
+export async function readVaultFile(path: string): Promise<string | null> {
   const config = getObsidianConfig();
   if (!config.enabled) return null;
   try {

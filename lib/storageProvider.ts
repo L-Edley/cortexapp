@@ -2,6 +2,7 @@ import type { CortexRecord, CortexRecordType } from "./types";
 import * as local from "./storage";
 import * as firebase from "./firebase/records";
 import * as obsidian from "./obsidian/vaultStorage";
+import { saveRecordToObsidian } from "@/lib/obsidian-adapter";
 
 // ============================================
 // STORAGE PROVIDER — Zero-Cost Architecture
@@ -46,6 +47,13 @@ export async function saveRecord(record: CortexRecord): Promise<void> {
     } catch {
       // Obsidian offline — keep local copy
     }
+  }
+  // Gera nota .md no vault via adapter (frontmatter YAML + corpo legível)
+  // Falha silenciosa se Obsidian estiver indisponível
+  try {
+    await saveRecordToObsidian(record);
+  } catch {
+    // Obsidian adapter offline — keep local copy
   }
 }
 

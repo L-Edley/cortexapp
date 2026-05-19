@@ -4,7 +4,11 @@ import path from "path";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["lib/aion/**/__tests__/**/*.test.ts"],
+    include: [
+      "lib/aion/**/__tests__/**/*.test.ts",
+      "lib/__tests__/**/*.test.ts",
+      "app/api/obsidian/__tests__/**/*.test.ts",
+    ],
     globals: true,
   },
   resolve: {
