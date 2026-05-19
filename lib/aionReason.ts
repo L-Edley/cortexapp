@@ -1,7 +1,7 @@
 import type { CortexRecord, CortexApiResponse } from "@/lib/types";
 import type { AionBrainItem } from "@/lib/aion/brain/types";
 import type { AionAction, AionDecision, AionFallbackReason, AionResponse } from "@/lib/aion/types";
-
+import type { SessionMessage } from "@/lib/sessionMemory";
 import { smartRouter } from "@/lib/aion/router";
 import { saveMemory } from "@/lib/aion/brain/memory";
 import { saveRecord as storageSaveRecord } from "@/lib/storageProvider";
@@ -51,6 +51,7 @@ export type ReasonOptions = {
   brainContextFromClient?: Partial<AionBrainItem>[];
   profileContext?: string;
   currentView?: string;
+  sessionMessages?: SessionMessage[];
 };
 
 export function classifyIntent(input: string): AionReasonIntent {
@@ -358,6 +359,9 @@ async function llmPipeline(
     brainItems: brainContext,
     recentRecords: options?.recentRecords || [],
   });
+  if (options?.sessionMessages) {
+    aionContext.recentSessionMessages = options.sessionMessages;
+  }
   const contextDebug = buildContextDebug(aionContext);
   const systemPrompt = buildSystemPrompt(aionContext);
   const userPrompt = buildQueryPrompt(userInput.trim(), aionContext, conversationContext);

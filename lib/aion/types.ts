@@ -1,6 +1,7 @@
 import type { CortexApiResponse, CortexRecord } from "@/lib/types";
 import type { AionBrainItem } from "./brain/types";
 import type { AionContextDebug } from "@/lib/aionContext";
+import type { SessionMessage } from "@/lib/sessionMemory";
 
 export type AionAction =
   | "none"
@@ -62,6 +63,7 @@ export type AionRequest = {
   voiceMode?: AionVoiceMode;
   brainContextFromClient?: Partial<AionBrainItem>[];
   profileContext?: string;
+  sessionMessages?: SessionMessage[];
 };
 
 export type AionResponse = {

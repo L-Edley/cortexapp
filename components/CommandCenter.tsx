@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import type { CortexRecord } from "@/lib/types";
 import { saveRecord } from "@/lib/storageProvider";
 import { generateRecordId } from "@/lib/id";
@@ -20,6 +20,11 @@ import {
 import VoiceCenter from "@/components/VoiceCenter";
 import { checkAllAlerts, getUnshownAlerts, markAlertShown } from "@/lib/aionAlerts";
 import { runAionScheduledJobs } from "@/lib/aionScheduler";
+import { addToSession, getRecentSessionMessages } from "@/lib/sessionMemory";
+import StreamingText from "@/components/voice/StreamingText";
+import MicButton from "@/components/voice/MicButton";
+import VoiceCenterCockpit from "@/components/voice/VoiceCenter";
+import { speak, stopSpeaking } from "@/lib/aionVoice";
 
 export default function CommandCenter() {
   const [message, setMessage] = useState("");
@@ -30,8 +35,8 @@ export default function CommandCenter() {
   const [followUp, setFollowUp] = useState<string | null>(null);
   const [tips, setTips] = useState<string[]>([]);
 
-  const speechQueue = useRef<string[]>([]);
-  const currentlySpeaking = useRef<boolean>(false);
+  const [micState, setMicState] = useState<"idle" | "listening" | "processing" | "speaking" | "error">("idle");
+  const [viewMode, setViewMode] = useState<"terminal" | "cockpit">("cockpit");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -125,88 +130,37 @@ export default function CommandCenter() {
     };
   }, []);
 
-  const enqueueSpeech = useCallback((text: string) => {
-    speechQueue.current.push(text);
-    processSpeechQueue();
-  }, []);
-
-  const processSpeechQueue = useCallback(async () => {
-    if (currentlySpeaking.current || speechQueue.current.length === 0) return;
-
-    currentlySpeaking.current = true;
-    const text = speechQueue.current.shift()!;
-
-    try {
-      const res = await fetch(`/api/tts?text=${encodeURIComponent(text)}`);
-      if (res.status === 200) {
-        const audioBlob = await res.blob();
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
-
-        audio.onended = () => {
-          currentlySpeaking.current = false;
-          processSpeechQueue();
-        };
-
-        audio.onerror = () => {
-          currentlySpeaking.current = false;
-          processSpeechQueue();
-        };
-
-        await audio.play();
-        return;
-      } else {
-        throw new Error(`TTS API returned status ${res.status}`);
-      }
-    } catch (err) {
-      console.warn("ElevenLabs TTS failed, falling back to local speech synthesis:", err);
-    }
-
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "pt-BR";
-      utterance.rate = 0.95;
-      const voices = window.speechSynthesis.getVoices();
-      const ptVoice = voices.find((v) => v.lang.startsWith("pt"));
-      if (ptVoice) utterance.voice = ptVoice;
-
-      utterance.onend = () => {
-        currentlySpeaking.current = false;
-        processSpeechQueue();
-      };
-
-      utterance.onerror = () => {
-        currentlySpeaking.current = false;
-        processSpeechQueue();
-      };
-
-      window.speechSynthesis.speak(utterance);
-    } else {
-      currentlySpeaking.current = false;
-      processSpeechQueue();
-    }
-  }, []);
+  // Speech synthesis queue is now managed by aionVoice library
 
   const handleSend = async (text?: string) => {
     const msg = (text ?? message).trim();
     if (!msg) return;
 
     setLoading(true);
+    setMicState("processing");
     setAiResponse("Processando...");
     setSources([]);
     setSuggestion(null);
     setFollowUp(null);
     setTips([]);
 
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-    speechQueue.current = [];
-    currentlySpeaking.current = false;
+    stopSpeaking();
 
     try {
       if (!text) setMessage("");
+
+      try {
+        addToSession("user", msg);
+      } catch (err) {
+        console.warn("sessionMemory failed:", err);
+      }
+
+      let sessionMessages;
+      try {
+        sessionMessages = getRecentSessionMessages(10);
+      } catch {
+        sessionMessages = undefined;
+      }
 
       let brainContextFromClient: SafeBrainItem[] | undefined;
       try {
@@ -232,6 +186,9 @@ export default function CommandCenter() {
         message: msg,
         voiceMode: "assistant",
       };
+      if (sessionMessages) {
+        payload.sessionMessages = sessionMessages;
+      }
       if (brainContextFromClient) {
         payload.brainContextFromClient = brainContextFromClient;
       }
@@ -268,6 +225,12 @@ export default function CommandCenter() {
       const displayText = reply || "Processado.";
       setAiResponse(displayText);
 
+      try {
+        addToSession("aion", displayText);
+      } catch (err) {
+        console.warn("sessionMemory failed:", err);
+      }
+
       if (responseSources && responseSources.length > 0) {
         setSources(responseSources);
       }
@@ -276,7 +239,12 @@ export default function CommandCenter() {
       if (tipList && tipList.length > 0) setTips(tipList);
 
       if (voiceReply) {
-        enqueueSpeech(voiceReply);
+        setMicState("speaking");
+        speak(voiceReply, {
+          onStart: () => setMicState("speaking"),
+          onEnd: () => setMicState("idle"),
+          onError: () => setMicState("idle"),
+        }).catch(() => setMicState("idle"));
       }
 
       if (action === "save_memory") {
@@ -358,6 +326,7 @@ export default function CommandCenter() {
       setAiResponse("Falha ao processar comando. Tente novamente.");
     } finally {
       setLoading(false);
+      setMicState((prev) => (prev === "processing" ? "idle" : prev));
     }
   };
 
@@ -369,86 +338,147 @@ export default function CommandCenter() {
   };
 
   return (
-    <div className="command-center">
-      <div className="cmd-header">
-        <span className="cmd-dot red" />
-        <span className="cmd-dot yellow" />
-        <span className="cmd-dot green" />
-        <span className="cmd-title glitch-text" data-text="AION — COMMAND INTERFACE v2.0">
-          AION — COMMAND INTERFACE v2.0
-        </span>
-        <span className="cmd-status">● ONLINE</span>
-      </div>
-
-      <div className="cmd-response">
-        <span className="cmd-prefix">AION › </span>
-        <span key={aiResponse} className="cmd-text typewriter">
-          {aiResponse}
-        </span>
-        <span className="cmd-cursor">█</span>
-      </div>
-
-      {suggestion && (
-        <div className="cmd-suggestion">
-          <span className="cmd-suggestion-icon">💡</span>
-          <span className="cmd-suggestion-text">{suggestion}</span>
-        </div>
-      )}
-
-      {followUp && (
-        <div className="cmd-followup">
-          <span className="cmd-followup-icon">❓</span>
-          <span className="cmd-followup-text">{followUp}</span>
-        </div>
-      )}
-
-      {tips.length > 0 && (
-        <div className="cmd-tips">
-          <span className="cmd-tips-title">DICAS:</span>
-          {tips.map((tip, i) => (
-            <span key={i} className="cmd-tip-item">
-              • {tip}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {sources.length > 0 && (
-        <div className="cmd-sources">
-          <span className="cmd-sources-title">FONTES:</span>
-          {sources.map((s, i) => (
-            <a
-              key={i}
-              href={s.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="cmd-source-link"
-            >
-              {s.title}
-            </a>
-          ))}
-        </div>
-      )}
-
-      <div className="cmd-input-row">
-        <span className="cmd-prompt">USER › </span>
-        <input
-          className="cmd-input"
-          placeholder="fale ou digite um comando..."
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={loading}
-        />
+    <div className="space-y-6">
+      {/* High-fidelity Visual Cockpit Mode Toggle Header */}
+      <div className="flex items-center justify-end space-x-2 px-2 z-20 relative">
         <button
-          className="voice-btn"
-          onClick={() => handleSend()}
-          disabled={loading || !message.trim()}
-          title="Enviar comando"
+          onClick={() => setViewMode("cockpit")}
+          className={`px-3 py-1 text-[10px] font-mono tracking-widest rounded-lg border transition-all duration-300 ${
+            viewMode === "cockpit"
+              ? "bg-cyan-500/10 border-cyan-500/40 text-cyan-400"
+              : "bg-slate-900/50 border-slate-800 text-slate-500 hover:text-slate-300"
+          }`}
+          type="button"
         >
-          <span className="text-xs font-mono">ENV</span>
+          JARVIS HUD
+        </button>
+        <button
+          onClick={() => setViewMode("terminal")}
+          className={`px-3 py-1 text-[10px] font-mono tracking-widest rounded-lg border transition-all duration-300 ${
+            viewMode === "terminal"
+              ? "bg-cyan-500/10 border-cyan-500/40 text-cyan-400"
+              : "bg-slate-900/50 border-slate-800 text-slate-500 hover:text-slate-300"
+          }`}
+          type="button"
+        >
+          RETRO TERMINAL
         </button>
       </div>
+
+      {viewMode === "cockpit" ? (
+        <VoiceCenterCockpit
+          onSendMessage={handleSend}
+          aiResponse={aiResponse}
+          loading={loading}
+          suggestion={suggestion}
+          followUp={followUp}
+          tips={tips}
+          sources={sources}
+        />
+      ) : (
+        <div className="command-center">
+          <div className="cmd-header">
+            <span className="cmd-dot red" />
+            <span className="cmd-dot yellow" />
+            <span className="cmd-dot green" />
+            <span className="cmd-title glitch-text" data-text="AION — COMMAND INTERFACE v2.0">
+              AION — COMMAND INTERFACE v2.0
+            </span>
+            <span className="cmd-status">● ONLINE</span>
+          </div>
+
+          <div className="cmd-response">
+            <span className="cmd-prefix">AION › </span>
+            <span key={aiResponse} className="cmd-text">
+              <StreamingText text={aiResponse} speedMs={40} highlightNumbers={true} />
+            </span>
+          </div>
+
+          {suggestion && (
+            <div className="cmd-suggestion">
+              <span className="cmd-suggestion-icon">💡</span>
+              <span className="cmd-suggestion-text">{suggestion}</span>
+            </div>
+          )}
+
+          {followUp && (
+            <div className="cmd-followup">
+              <span className="cmd-followup-icon">❓</span>
+              <span className="cmd-followup-text">{followUp}</span>
+            </div>
+          )}
+
+          {tips.length > 0 && (
+            <div className="cmd-tips">
+              <span className="cmd-tips-title">DICAS:</span>
+              {tips.map((tip, i) => (
+                <span key={i} className="cmd-tip-item">
+                  • {tip}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {sources.length > 0 && (
+            <div className="cmd-sources">
+              <span className="cmd-sources-title">FONTES:</span>
+              {sources.map((s, i) => (
+                <a
+                  key={i}
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="cmd-source-link"
+                >
+                  {s.title}
+                </a>
+              ))}
+            </div>
+          )}
+
+          <div className="cmd-input-row">
+            <span className="cmd-prompt">USER › </span>
+            <input
+              className="cmd-input"
+              placeholder="fale ou digite um comando..."
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={loading}
+            />
+            <MicButton
+              state={micState}
+              onStart={() => {
+                stopSpeaking();
+                setMicState("listening");
+              }}
+              onStop={() => setMicState("idle")}
+              onTranscript={(text) => {
+                setMessage(text);
+                setMicState("processing");
+                handleSend(text);
+              }}
+              onInterimTranscript={(text) => {
+                setMessage(text);
+              }}
+              onError={(err) => {
+                console.error("Erro no microfone:", err);
+                setMicState("error");
+                setTimeout(() => setMicState("idle"), 3000);
+              }}
+              disabled={loading}
+            />
+            <button
+              className="voice-btn"
+              onClick={() => handleSend()}
+              disabled={loading || !message.trim()}
+              title="Enviar comando"
+            >
+              <span className="text-xs font-mono">ENV</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       <VoiceCenter />
     </div>

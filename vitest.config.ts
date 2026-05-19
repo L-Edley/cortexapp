@@ -11,7 +11,7 @@ export default defineConfig({
       "lib/__tests__/**/*.test.ts",
       "app/api/obsidian/__tests__/**/*.test.ts",
       "app/api/aion/__tests__/**/*.test.ts",
-      "components/__tests__/**/*.test.ts",
+      "components/__tests__/**/*.test.{ts,tsx}",
     ],
     globals: true,
   },

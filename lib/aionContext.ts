@@ -17,6 +17,9 @@ import { retrieveRelevantBrainContext } from "@/lib/aion/brain/retrieval";
 import { semanticSearch } from "@/lib/aion/vector/semanticIndex";
 import { getSystemPrompt } from "@/lib/aion/systemPrompt";
 
+import { getRecentSessionMessages } from "@/lib/sessionMemory";
+import type { SessionMessage } from "@/lib/sessionMemory";
+
 export type AionPatterns = {
   behaviorTriggers: BehaviorTrigger[];
   energyPattern: EnergyPattern[];
@@ -41,6 +44,7 @@ export type AionContext = {
   semanticResults: VectorSearchResult[];
   currentDateTime: string;
   systemState: AionSystemState;
+  recentSessionMessages?: SessionMessage[];
 };
 
 export type AionContextDebug = {
@@ -167,6 +171,12 @@ export async function buildSessionContext(
     fallback.semanticResults = results.slice(0, 3);
   } catch {
     /* semantic search unavailable */
+  }
+
+  try {
+    fallback.recentSessionMessages = getRecentSessionMessages(10);
+  } catch {
+    /* session memory unavailable */
   }
 
   return fallback;
@@ -335,7 +345,12 @@ export function buildQueryPrompt(
     parts.push(formatSemanticResults(context.semanticResults));
   }
 
-  if (conversationContext) {
+  if (context.recentSessionMessages && context.recentSessionMessages.length > 0) {
+    const lines = context.recentSessionMessages.map(
+      (m) => `${m.role === "user" ? "Usuário" : "Aion"}: ${m.content}`
+    );
+    parts.push(`CONVERSA RECENTE DA SESSÃO:\n${lines.join("\n")}`);
+  } else if (conversationContext) {
     parts.push(`CONVERSA RECENTE:\n${conversationContext}`);
   }
 

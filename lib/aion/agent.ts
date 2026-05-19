@@ -7,6 +7,7 @@ import type {
   RouteType,
   LearningCandidate,
 } from "./types";
+import type { SessionMessage } from "@/lib/sessionMemory";
 import { searchWeb, getMemory } from "./tools";
 import { getOrderedProviders } from "@/lib/ai";
 import type { ProviderEntry } from "@/lib/ai";
@@ -128,8 +129,9 @@ export async function runAgent(params: {
   currentView?: string;
   brainContextFromClient?: Partial<AionBrainItem>[];
   profileContext?: string;
+  sessionMessages?: SessionMessage[];
 }): Promise<AionResponse> {
-  const { message, recentRecords, brainContextFromClient } = params;
+  const { message, recentRecords, brainContextFromClient, sessionMessages } = params;
 
   console.log("[AION] ===== NOVA REQUISIÇÃO =====");
   console.log("[AION] mensagem:", message);
@@ -155,6 +157,7 @@ export async function runAgent(params: {
   const reasonResult = await reason(message, {
     recentRecords,
     brainContextFromClient,
+    sessionMessages,
   });
 
   const route: RouteType =

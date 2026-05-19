@@ -66,6 +66,26 @@ vi.mock("@/components/VoiceCenter", () => ({
   default: () => null,
 }));
 
+vi.mock("@/components/voice/StreamingText", () => ({
+  default: ({ text }: { text: string }) => text,
+}));
+
+vi.mock("@/components/voice/MicButton", () => ({
+  default: () => null,
+}));
+
+vi.mock("@/components/voice/VoiceCenter", () => ({
+  default: ({ aiResponse }: { aiResponse: string }) => aiResponse,
+}));
+
+const mockAddToSession = vi.fn();
+const mockGetRecentSessionMessages = vi.fn(() => []);
+
+vi.mock("@/lib/sessionMemory", () => ({
+  addToSession: (role: unknown, content: unknown) => mockAddToSession(role, content),
+  getRecentSessionMessages: () => mockGetRecentSessionMessages(),
+}));
+
 import CommandCenter from "../CommandCenter";
 
 describe("CommandCenter Alertas e Scheduler Integridade", () => {
@@ -89,6 +109,22 @@ describe("CommandCenter Alertas e Scheduler Integridade", () => {
     render(createElement(CommandCenter));
 
     // O briefing ainda deve ser exibido com sucesso, provando que o erro do scheduler não bloqueou o app
+    await waitFor(() => {
+      expect(screen.getByText(/Olá João!/)).toBeTruthy();
+      expect(screen.getByText(/Resumo do dia./)).toBeTruthy();
+    });
+  });
+
+  it("CommandCenter não quebra se sessionMemory falhar", async () => {
+    mockAddToSession.mockImplementationOnce(() => {
+      throw new Error("Erro de simulação do sessionMemory");
+    });
+    mockGetRecentSessionMessages.mockImplementationOnce(() => {
+      throw new Error("Erro de simulação do sessionMemory");
+    });
+
+    render(createElement(CommandCenter));
+    
     await waitFor(() => {
       expect(screen.getByText(/Olá João!/)).toBeTruthy();
       expect(screen.getByText(/Resumo do dia./)).toBeTruthy();
