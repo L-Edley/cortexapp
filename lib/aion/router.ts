@@ -158,27 +158,48 @@ function cleanTaskTitle(message: string): string {
   return title || message;
 }
 
-function expenseResponse(message: string): AionResponse {
+function inferCategory(message: string, type: "task" | "expense"): string | null {
   const lower = message.toLowerCase();
+
+  if (type === "task") {
+    if (lower.includes("internet") || lower.includes("luz") || lower.includes("água") || lower.includes("agua") || lower.includes("boleto") || lower.includes("aluguel") || lower.includes("telefone")) {
+      return "contas";
+    }
+    if (lower.includes("reunião") || lower.includes("reuniao") || lower.includes("cliente") || lower.includes("projeto") || lower.includes("trabalho")) {
+      return "trabalho";
+    }
+    if (lower.includes("treino") || lower.includes("academia") || lower.includes("cardio")) {
+      return "saúde";
+    }
+    if (lower.includes("estudar") || lower.includes("aula") || lower.includes("curso")) {
+      return "estudos";
+    }
+    return null;
+  }
+
+  if (lower.includes("almoço") || lower.includes("almoco") || lower.includes("lanche") || lower.includes("mercado") || lower.includes("restaurante")) {
+    return "alimentação";
+  }
+  if (lower.includes("uber") || lower.includes("gasolina") || lower.includes("ônibus") || lower.includes("onibus") || lower.includes("transporte")) {
+    return "transporte";
+  }
+  if (lower.includes("remédio") || lower.includes("remedio") || lower.includes("farmácia") || lower.includes("farmacia") || lower.includes("consulta")) {
+    return "saúde";
+  }
+  if (lower.includes("internet") || lower.includes("luz") || lower.includes("água") || lower.includes("agua") || lower.includes("aluguel") || lower.includes("boleto")) {
+    return "contas";
+  }
+  return "geral";
+}
+
+function expenseResponse(message: string): AionResponse {
   let amount: number | null = null;
   const match = message.match(/R?\$?([\d.,]+)/);
   if (match) {
     amount = parseFloat(match[1].replace(",", "."));
   }
 
-  let category: string | null = null;
-  if (lower.includes("almoço") || lower.includes("comida") || lower.includes("lanche") || lower.includes("café")) {
-    category = "alimentação";
-  } else if (lower.includes("transporte") || lower.includes("uber") || lower.includes("gasolina") || lower.includes("ônibus")) {
-    category = "transporte";
-  } else if (lower.includes("assinatura") || lower.includes("streaming") || lower.includes("netflix")) {
-    category = "assinatura";
-  } else if (lower.includes("mercado") || lower.includes("supermercado") || lower.includes("feira")) {
-    category = "supermercado";
-  } else {
-    category = "geral";
-  }
-
+  const category = inferCategory(message, "expense");
   const title = amount ? `Gasto de R$ ${amount.toFixed(2)}` : "Gasto registrado";
   const amountStr = amount ? ` de R$ ${amount.toFixed(2)}` : "";
   const catStr = category ? ` em ${category}` : "";
@@ -211,6 +232,7 @@ function taskResponse(message: string): AionResponse {
 
   const record = makeRecord("task", title, message, priority, {
     dueDate: dueDate || null,
+    category: inferCategory(message, "task"),
     nextAction: title,
   });
 
