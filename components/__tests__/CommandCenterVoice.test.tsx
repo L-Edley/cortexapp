@@ -52,7 +52,22 @@ vi.mock("@/lib/aionScheduler", () => ({
 }));
 
 vi.mock("@/components/VoiceCenter", () => ({
-  default: () => null,
+  default: ({ onSendMessage }: { onSendMessage: (text: string) => Promise<void> }) => {
+    return createElement("div", {}, [
+      createElement("button", {
+        key: "send",
+        "data-testid": "cockpit-send",
+        onClick: () => onSendMessage("comando cockpit")
+      }),
+      createElement("button", {
+        key: "mic",
+        "data-testid": "mic-btn",
+        onClick: () => {
+          mockStopSpeakingSpy();
+        }
+      })
+    ]);
+  }
 }));
 
 vi.mock("@/components/voice/StreamingText", () => ({

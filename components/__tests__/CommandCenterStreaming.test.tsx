@@ -55,7 +55,20 @@ vi.mock("@/lib/aionScheduler", () => ({
 }));
 
 vi.mock("@/components/VoiceCenter", () => ({
-  default: () => null,
+  default: ({
+    aiResponse,
+    onSendMessage,
+  }: {
+    aiResponse: string;
+    onSendMessage: (t: string) => void;
+  }) => (
+    <div>
+      <span data-testid="response">{aiResponse}</span>
+      <button data-testid="send-btn" onClick={() => onSendMessage("Oi Aion")}>
+        Send
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/voice/StreamingText", () => ({

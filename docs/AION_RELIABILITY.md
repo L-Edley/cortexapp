@@ -58,7 +58,21 @@ Todos os erros capturados nas camadas de backend e frontend são interceptados e
 
 ## 3. Telemetria e Monitoramento Seguro
 
-Toda recuperação de falha bem-sucedida ou erro capturado é registrado no **Diagnostics Panel** (quando o debug está ativo ou em ambiente de desenvolvimento):
+Toda recuperação de falha bem-sucedida ou erro capturado é registrado no **Diagnostics Panel** (quando o debug está ativo ou em ambiente de desenvolvimento).
+
+### 3.1 Ativação do Modo de Depuração (Debug)
+
+Para fins de suporte e desenvolvimento, é possível habilitar a exibição detalhada de métricas, logs e telemetria no console e no painel visual executando o seguinte comando no console de ferramentas do desenvolvedor (F12) do navegador:
+
+```javascript
+localStorage.setItem("aion_debug", "true");
+```
+
+Para desativar a qualquer momento:
+
+```javascript
+localStorage.removeItem("aion_debug");
+```
 
 ### Riscos Restantes Mapeados
 1. **Rede Completamente Offline**: Sem internet, os roteadores em nuvem não funcionam. O app dependerá exclusivamente de cache e modelo local (se houver Ollama rodando localmente).

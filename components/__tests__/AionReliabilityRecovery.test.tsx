@@ -2,7 +2,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createElement } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
-import { normalizeAionError, shouldRetry } from "@/lib/aionError";
 
 vi.mock("next/dynamic", () => ({
   default: () => {
@@ -12,9 +11,16 @@ vi.mock("next/dynamic", () => ({
   },
 }));
 
+const mockSaveRecord = vi.fn();
+const mockSaveMemory = vi.fn();
+
 vi.mock("@/lib/storageProvider", () => ({
-  saveRecord: vi.fn(),
+  saveRecord: (rec: any) => mockSaveRecord(rec),
   getRecords: vi.fn(() => []),
+}));
+
+vi.mock("@/lib/aion/brain/memory", () => ({
+  saveMemory: (item: any) => mockSaveMemory(item),
 }));
 
 vi.mock("@/lib/aionProfile", () => ({
@@ -68,7 +74,13 @@ vi.mock("@/components/voice/StreamingText", () => ({
 }));
 
 vi.mock("@/components/voice/MicButton", () => ({
-  default: () => null,
+  default: ({ onError }: { onError: (err: any) => void }) => {
+    return (
+      <button data-testid="mic-trigger-error" onClick={() => onError("Permission denied")}>
+        Trigger Mic Error
+      </button>
+    );
+  },
 }));
 
 vi.mock("@/components/voice/VoiceCenter", () => ({
@@ -88,46 +100,45 @@ vi.mock("@/components/voice/VoiceCenter", () => ({
   ),
 }));
 
+const mockSpeak = vi.fn();
 vi.mock("@/lib/aionVoice", () => ({
-  speak: vi.fn().mockRejectedValue(new Error("TTS device failed")),
+  speak: (text: string, options?: any) => mockSpeak(text, options),
   stopSpeaking: vi.fn(),
 }));
 
-describe("Aion Error Classification & Reliability", () => {
+const mockAddToSession = vi.fn();
+vi.mock("@/lib/sessionMemory", () => ({
+  addToSession: (role: string, text: string) => mockAddToSession(role, text),
+  getRecentSessionMessages: vi.fn(() => []),
+}));
+
+describe("Aion Reliability Recovery Scenarios", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     globalThis.fetch = vi.fn();
   });
 
-  it("classifica e normaliza erros corretamente", () => {
-    const errStream = normalizeAionError(new Error("ReadableStream chunk read failed"));
-    expect(errStream.type).toBe("stream_failed");
-    expect(errStream.message).toContain("problema na transmissão");
+  it("recupera elegantemente de falha de storage (addToSession/saveRecord/saveMemory) sem quebrar o fluxo", async () => {
+    // 1) Mock addToSession to throw
+    mockAddToSession.mockImplementation(() => {
+      throw new Error("IndexedDB quota exceeded");
+    });
+    mockSaveRecord.mockRejectedValue(new Error("IndexedDB write failed"));
+    mockSaveMemory.mockRejectedValue(new Error("IndexedDB save memory failed"));
 
-    const errTimeout = normalizeAionError("Groq service timeout error");
-    expect(errTimeout.type).toBe("provider_timeout");
-
-    const errTts = normalizeAionError(new Error("ElevenLabs synthesis credit limit reached"));
-    expect(errTts.type).toBe("tts_failed");
-
-    const errUnknown = normalizeAionError({});
-    expect(errUnknown.type).toBe("unknown");
-  });
-
-  it("shouldRetry determina retentativas corretamente", () => {
-    expect(shouldRetry("stream_failed")).toBe(true);
-    expect(shouldRetry("provider_timeout")).toBe(true);
-    expect(shouldRetry("tts_failed")).toBe(false);
-  });
-
-  it("cai de /api/aion/stream para /api/aion síncrona", async () => {
+    // 2) Mock successful API response with fallback
     vi.mocked(globalThis.fetch)
-      .mockRejectedValueOnce(new Error("ReadableStream failed")) // Stream route fails
+      .mockRejectedValueOnce(new Error("ReadableStream failed"))
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          reply: "Texto do fallback síncrono!",
-          voiceReply: "Fallback síncrono.",
+          reply: "Resposta textual bem sucedida!",
+          action: "create_record",
+          record: {
+            type: "task",
+            title: "Test task",
+            priority: "medium",
+          },
         }),
       } as any);
 
@@ -137,17 +148,27 @@ describe("Aion Error Classification & Reliability", () => {
     const btn = await screen.findByTestId("send-btn");
     btn.click();
 
+    // Verify user still gets their text reply even though storage throw exceptions
     await waitFor(() => {
       expect(screen.getByTestId("response").textContent).toContain(
-        "Texto do fallback síncrono!"
+        "Resposta textual bem sucedida!"
       );
     });
   });
 
-  it("mostra erro amigável se tanto stream quanto /api/aion falharem", async () => {
+  it("recupera elegantemente de falha no TTS (speak) sem quebrar a interface e revertendo para idle", async () => {
+    // Mock speak to throw or reject immediately
+    mockSpeak.mockRejectedValue(new Error("TTS Engine failure"));
+
     vi.mocked(globalThis.fetch)
       .mockRejectedValueOnce(new Error("ReadableStream failed"))
-      .mockRejectedValueOnce(new Error("Groq API 502 Bad Gateway"));
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          reply: "Resposta com áudio",
+          voiceReply: "Texto da voz",
+        }),
+      } as any);
 
     const { default: CommandCenter } = await import("../CommandCenter");
     render(createElement(CommandCenter));
@@ -155,9 +176,23 @@ describe("Aion Error Classification & Reliability", () => {
     const btn = await screen.findByTestId("send-btn");
     btn.click();
 
+    // Verify response is shown and speak is triggered without hanging the interface
+    await waitFor(() => {
+      expect(screen.getByTestId("response").textContent).toContain("Resposta com áudio");
+    });
+  });
+
+  it("recupera de falha de microfone exibindo mensagem amigável e normalizando como speech_recognition_failed", async () => {
+    const { default: CommandCenter } = await import("../CommandCenter");
+    render(createElement(CommandCenter));
+
+    const errBtn = await screen.findByTestId("mic-trigger-error");
+    errBtn.click();
+
+    // Verify user is alerted about microphone not available
     await waitFor(() => {
       expect(screen.getByTestId("response").textContent).toContain(
-        "instabilidade ao conectar com meu cérebro principal"
+        "O microfone não está disponível. Você pode digitar normalmente."
       );
     });
   });

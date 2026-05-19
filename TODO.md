@@ -1,0 +1,22 @@
+# TODO — P6.4 Aion Reliability & Error Recovery
+
+- [ ] Update `components/CommandCenter.tsx`
+  - [ ] Add safe debug logging helpers (`isDebugEnabled`, `debugWarn`, `debugError`) so console.warn/error only runs when `NODE_ENV === "development"` or `localStorage["aion_debug"] === "true"`.
+  - [ ] Ensure stream fallback (`/api/aion/stream` -> `/api/aion`) sets `latestMetrics` with `errorType` and `errorFallbackUsed` (and fallbackUsed=true, streamingAttempted=true, streamingUsed=false).
+  - [ ] Ensure when both stream and `/api/aion` fail: show friendly message via `normalizeAionError`, set `latestMetrics` with `errorType`/`errorFallbackUsed`, and do not expose stack.
+  - [ ] Protect storage: wrap `addToSession` and `saveRecord` in try/catch so `storage_failed` never breaks UI.
+  - [ ] Add TTS failure safety: normalize to `tts_failed` and ensure response text remains; update diagnostics if possible.
+- [ ] Ensure `components/debug/AionDiagnosticsPanel.tsx` displays last normalized error and recovery flags without sensitive info.
+- [ ] Update `docs/AION_RELIABILITY.md`
+  - [ ] Fill in missing fallback behavior for each `AionErrorType`
+  - [ ] Add “como ativar” `localStorage["aion_debug"] = "true"`
+- [ ] Expand tests
+  - [ ] Add test: stream fails -> fallback succeeds -> `latestMetrics` shows errorType + fallbackUsed (rendered in diagnostics in dev)
+  - [ ] Add test: stream+api fail -> friendly error message and diagnostics flags
+  - [ ] Add test: `saveRecord` throwing does not break UI
+  - [ ] Add test: `addToSession` throwing does not break UI
+  - [ ] Add test: TTS failure does not break response textual flow
+  - [ ] Add tests for `normalizeAionError` covering `speech_recognition_failed` and `semantic_search_failed`
+  - [ ] Add tests that diagnostics panel does not show stack/API keys/prompts/message
+  - [ ] Add tests that console.warn/error do not run in production unless debug flag is enabled
+- [ ] Run `npm test`, `npm run lint`, `npm run build`
