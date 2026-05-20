@@ -3,11 +3,8 @@ import type { AionBrainItem } from "@/lib/aion/brain/types";
 import type { AionAction, AionDecision, AionFallbackReason, AionResponse, AionClientContext } from "@/lib/aion/types";
 import type { SessionMessage } from "@/lib/sessionMemory";
 import { smartRouter } from "@/lib/aion/router";
-import { saveMemory } from "@/lib/aion/brain/memory";
-import { saveRecord as storageSaveRecord } from "@/lib/storageProvider";
 import { buildSessionContext, buildSystemPrompt, buildQueryPrompt, buildContextDebug } from "@/lib/aionContext";
 import { callWithFallback } from "@/lib/aionLLM";
-import { retrieveRelevantBrainContext, answerFromBrain } from "@/lib/aion/brain";
 import { getMemory } from "@/lib/aion/memory";
 import { parseRecordFromDecision } from "@/lib/aion/tools";
 import { resolveRelativeDatePtBR } from "@/lib/aion/dateResolver";
@@ -18,6 +15,26 @@ import { getOfficialDoctrineAnswer } from "@/lib/aionOfficialDoctrine";
 import { shouldUseLearningEngine } from "./aionKnowledgeGap";
 import { runLearningEngine } from "./aionLearningEngine";
 
+
+function formatBrainAnswer(message: string, context: AionBrainItem[]): string | null {
+  if (context.length === 0) return null;
+  const activeItems = context.filter((i) => !i.expiresAt || new Date(i.expiresAt).getTime() > Date.now());
+  if (activeItems.length === 0) return null;
+  const avgConfidence = activeItems.reduce((s, i) => s + i.confidence, 0) / activeItems.length;
+  if (avgConfidence < 0.65) return null;
+  const best = activeItems[0];
+  const normalized = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  const isMemory = /^(salve|salva|registre|registra|lembre|lembra|guarde|guarda|anote|anota)\s+(que|disso)\b/i.test(normalized);
+  switch (best.type) {
+    case "procedure": return `Aqui está o procedimento que aprendi:\n\n${best.content}`;
+    case "decision": return `Com base na decisão anterior: ${best.content}`;
+    case "project_context": return best.content;
+    case "user_preference": return best.content;
+    case "research": return isMemory ? best.content : `${best.content}\n\n(Esta informação pode estar desatualizada — salvei ela antes.)`;
+    case "pattern": return best.content;
+    default: return best.content;
+  }
+}
 
 export type AionReasonIntent =
   | "record"
@@ -43,12 +60,17 @@ export type AionReasonResponse = {
   route: AionReasonRoute;
   timeMs: number;
   record?: CortexApiResponse | null;
-  suggestion?: string;
-  followUpQuestion?: string;
-  tips?: string[];
+  suggestion?: string | null;
+  followUpQuestion?: string | null;
+  tips?: string[] | null;
   searchQuery?: string;
   llmText?: string;
   llmRoute?: string;
+  learningData?: {
+    input: string;
+    reply: string;
+    type: any;
+  };
   debug?: Record<string, unknown>;
 };
 
@@ -226,24 +248,18 @@ async function handleMemoryIntent(input: string, startTime: number): Promise<Aio
     updatedAt: new Date().toISOString(),
   };
 
-  let saved = false;
-  try {
-    const result = await saveMemory(brainItem);
-    saved = result !== null;
-  } catch {
-    saved = false;
-  }
-
   return {
-    text: saved ? `Anotado: "${title}". Vou lembrar disso.` : "Não consegui salvar agora, mas entendi.",
-    voiceReply: saved ? "Memória salva." : "Entendi.",
+    text: `Anotado: "${title}". Vou lembrar disso.`,
+    voiceReply: "Memória salva.",
     intent: "memory",
-    actionsExecuted: saved ? ["save_memory"] : [],
+    actionsExecuted: ["save_memory"],
+    record: brainItem as unknown as CortexApiResponse,
     nextSteps: [],
-    confidence: saved ? 0.95 : 0.6,
-    providerUsed: saved ? "aion-brain" : "smart-router",
-    route: saved ? "brain" : "local",
+    confidence: 0.95,
+    providerUsed: "aion-brain",
+    route: "brain",
     timeMs: Date.now() - startTime,
+    debug: buildContextDebug({} as any),
   };
 }
 
@@ -417,23 +433,14 @@ async function llmPipeline(
   } else if (options?.brainContextFromClient) {
     brainContext = (options.brainContextFromClient as AionBrainItem[]);
   } else {
-    const isServerEnv = typeof window === "undefined" && process.env.NODE_ENV !== "test";
-    if (isServerEnv || isSmalltalk || !policy.loadSemanticSearch) {
-      brainContext = [];
-    } else {
-      try {
-        brainContext = await retrieveRelevantBrainContext(userInput);
-      } catch {
-        brainContext = [];
-      }
-    }
+    brainContext = [];
   }
   semanticSearchMs = isSmalltalk || !policy.loadSemanticSearch ? 0 : Date.now() - searchStart;
 
   // 2. Question direct answer step
   if (intent === "question" && !isSmalltalk) {
     const questionStart = Date.now();
-    const brainAnswer = await answerFromBrain(userInput, brainContext);
+    const brainAnswer = formatBrainAnswer(userInput, brainContext as AionBrainItem[]);
     llmMs = Date.now() - questionStart;
     if (brainAnswer) {
       const { text, voiceReply } = enforceToneRules(brainAnswer, brainAnswer.split(/[.!?]/)[0] + ".");
@@ -561,27 +568,24 @@ async function llmPipeline(
 
   // 6. Local storage writes (save memory, save records)
   const storageStart = Date.now();
+  let finalBrainItem: AionBrainItem | null = null;
   if (decision.action === "save_memory" && decision.record) {
-    try {
-      const brainItem: AionBrainItem = {
-        id: generateId(),
-        type: "user_preference",
-        title: decision.record.title,
-        content: decision.record.description || decision.record.title,
-        tags: ["memory", "llm-saved"],
-        source: "llm",
-        confidence: decision.confidence,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      await saveMemory(brainItem);
-    } catch {
-      /* fail silently */
-    }
+    finalBrainItem = {
+      id: generateId(),
+      type: "user_preference",
+      title: decision.record.title,
+      content: decision.record.description || decision.record.title,
+      tags: ["memory", "llm-saved"],
+      source: "llm",
+      confidence: decision.confidence,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
   }
 
+  let fullRecord: CortexRecord | null = null;
   if (decision.action === "create_record" && decision.record) {
-    const fullRecord: CortexRecord = {
+    fullRecord = {
       id: generateId(),
       type: decision.record.type,
       title: decision.record.title,
@@ -595,11 +599,6 @@ async function llmPipeline(
       status: "pending",
       createdAt: new Date().toISOString(),
     };
-    try {
-      await storageSaveRecord(fullRecord);
-    } catch {
-      /* fail silently */
-    }
   }
   storageMs = Date.now() - storageStart;
 
@@ -626,7 +625,7 @@ async function llmPipeline(
     route: "llm",
     llmRoute: (llmResult as { route?: string }).route || "api",
     timeMs: totalMs,
-    record: decision.record || null,
+    record: (fullRecord || finalBrainItem || decision.record || null) as unknown as CortexApiResponse,
     suggestion: decision.suggestion,
     followUpQuestion: decision.followUpQuestion,
     tips: decision.tips,
@@ -850,7 +849,7 @@ export async function reason(
     }
   }
 
-  if (intent === "memory") {
+  if ((intent as string) === "memory") {
     const memoryStart = Date.now();
     const res = await handleMemoryIntent(userInput, startTime);
     const storageMs = Date.now() - memoryStart;
@@ -899,7 +898,12 @@ export async function reason(
         text: learningRes.reply,
         voiceReply: learningRes.reply.split(/[.!?;]/)[0] + ".",
         intent,
-        actionsExecuted: [],
+        actionsExecuted: ["save_learning"],
+        learningData: {
+          input: learningRes.input,
+          reply: learningRes.reply,
+          type: learningRes.learningType,
+        },
         nextSteps: [],
         confidence: 0.9,
         providerUsed: learningRes.providerUsed,

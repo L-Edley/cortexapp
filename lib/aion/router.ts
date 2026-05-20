@@ -146,7 +146,7 @@ function cleanTaskTitle(message: string): string {
   ];
 
   const DATE_WORDS =
-    /\b(hoje|amanhã|amanha|depois\s+de\s+amanhã|depois\s+de\s+amanha|segunda|terça|terca|quarta|quinta|sexta|sábado|sabado|domingo|semana\s+que\s+vem|mês\s+que\s+vem|mes\s+que\s+vem)\b/gi;
+    /(?:hoje|amanh[ãa]|depois\s+de\s+amanh[ãa]|pr[óo]ximo\s+dia|(?:na\s+)?segunda|(?:na\s+)?ter[çc]a|(?:na\s+)?quarta|(?:na\s+)?quinta|(?:na\s+)?sexta|(?:no\s+)?s[áa]bado|(?:no\s+)?domingo|semana\s+que\s+vem|m[êe]s\s+que\s+vem|[àa]s\s+\d{1,2}h(?:oras)?)/gi;
 
   let title = message;
   for (const prefix of PREFIXES) {
@@ -239,8 +239,8 @@ function taskResponse(message: string): AionResponse {
   const displayDate = record.dueDate ? formatDatePtBR(record.dueDate) : null;
 
   const reply = displayDate
-    ? `Tarefa registrada para ${displayDate}: "${record.title}".${isUrgent ? " Marquei como urgente!" : ""} Quer definir um projeto ou algo mais?`
-    : `Tarefa registrada: "${record.title}". Quer definir um prazo ou projeto?`;
+    ? `Fechado, deixei para ${displayDate}.${isUrgent ? " Marquei como urgente!" : ""}`
+    : `Fechado, registrei a tarefa.${isUrgent ? " Marquei como urgente!" : " Se quiser, também posso marcar como prioridade alta."}`;
 
   const voiceReply = displayDate
     ? `Tarefa registrada para ${displayDate}.${isUrgent ? " Urgente!" : ""}`

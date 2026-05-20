@@ -400,6 +400,7 @@ export default function CommandCenter() {
         followUpQuestion,
         tips: tipList,
         learningCandidate,
+        learningData,
         debug,
       } = data;
 
@@ -543,6 +544,18 @@ export default function CommandCenter() {
             fallbackUsed: true,
           }));
         }
+      }
+
+      if (action === "save_learning" && learningData) {
+        import("@/lib/aionLearningEngine.client")
+          .then((m) =>
+            m.learnFromProviderResponse(
+              learningData.input,
+              learningData.reply,
+              learningData.type
+            )
+          )
+          .catch((err) => debugWarn("Falha ao salvar learning", err));
       }
 
       if (action === "create_record" && recordData) {

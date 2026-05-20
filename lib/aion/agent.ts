@@ -269,6 +269,7 @@ export async function runAgent(params: {
     suggestion: reasonResult.suggestion,
     followUpQuestion: reasonResult.followUpQuestion,
     tips: reasonResult.tips,
+    learningData: reasonResult.learningData,
     confidence: reasonResult.confidence,
     fallbackUsed,
     learningCandidate,

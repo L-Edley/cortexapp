@@ -10,7 +10,8 @@ export type AionAction =
   | "ask_clarification"
   | "suggest_next_step"
   | "read_dashboard"
-  | "save_memory";
+  | "save_memory"
+  | "save_learning";
 
 export type AionVoiceMode = "off" | "confirmations" | "assistant";
 
@@ -82,6 +83,11 @@ export type AionResponse = {
   suggestion?: string;
   followUpQuestion?: string;
   tips?: string[];
+  learningData?: {
+    input: string;
+    reply: string;
+    type: any;
+  };
   confidence: number;
   fallbackUsed: boolean;
   learningCandidate?: LearningCandidate;
@@ -95,6 +101,9 @@ export type AionResponse = {
     ollamaAvailable?: boolean;
     contextDebug?: AionContextDebug;
     brainItemsUsed?: AionBrainItem[];
+    intent?: string;
+    timeMs?: number;
+    learnedNewItem?: boolean;
     latencyMetrics?: {
       totalMs: number;
       classifyIntentMs: number;

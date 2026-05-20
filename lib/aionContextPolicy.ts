@@ -1,4 +1,4 @@
-import { AionReasonIntent } from "./aion/types";
+import type { AionReasonIntent } from "./aionReason";
 
 export interface AionContextPolicy {
   loadSemanticSearch: boolean;
