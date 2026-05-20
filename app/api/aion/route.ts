@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       brainContextFromClient: body.brainContextFromClient,
       profileContext: body.profileContext,
       sessionMessages: body.sessionMessages,
+      clientContext: body.clientContext,
     });
 
     console.log("[AION] fallbackUsed:", result.fallbackUsed);

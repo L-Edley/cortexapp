@@ -56,6 +56,12 @@ export type AionSource = {
   url: string;
 };
 
+export type AionClientContext = {
+  source: "client-dexie";
+  semanticResults?: any[];
+  brainItems?: AionBrainItem[];
+};
+
 export type AionRequest = {
   message: string;
   currentView?: string;
@@ -64,6 +70,7 @@ export type AionRequest = {
   brainContextFromClient?: Partial<AionBrainItem>[];
   profileContext?: string;
   sessionMessages?: SessionMessage[];
+  clientContext?: AionClientContext;
 };
 
 export type AionResponse = {

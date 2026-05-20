@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
           brainContextFromClient: body.brainContextFromClient,
           profileContext: body.profileContext,
           sessionMessages: body.sessionMessages,
+          clientContext: body.clientContext,
         });
 
         // 5. Stream tokens

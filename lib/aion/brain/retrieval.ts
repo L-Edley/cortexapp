@@ -1,7 +1,6 @@
 import type { AionBrainItem, AionBrainItemType, AionBrainScoredItem } from "./types";
-import type { VectorSearchResult } from "@/lib/aion/vector/types";
+import type { VectorSearchResult } from "@/lib/aion/vector/server-safe";
 import { getBrainDB, isBrainAvailable } from "./brainStore";
-import { semanticSearch } from "@/lib/aion/vector/semanticIndex";
 
 const STOP_WORDS = new Set([
   "para", "como", "que", "com", "dos", "das", "uma", "mas", "por", "mais",
@@ -112,6 +111,7 @@ export async function retrieveRelevantBrainContext(
 
     let semanticResults: VectorSearchResult[] = [];
     try {
+      const { semanticSearch } = await import("@/lib/aion/vector/semanticIndex");
       semanticResults = await semanticSearch(message, { topK: 10, threshold: 0.3 });
     } catch {
       semanticResults = [];

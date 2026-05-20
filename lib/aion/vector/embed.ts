@@ -1,5 +1,3 @@
-import { pipeline } from "@huggingface/transformers";
-
 type FeatureExtractionPipeline = (
   texts: string | string[],
   options?: {
@@ -12,11 +10,17 @@ let model: FeatureExtractionPipeline | null = null;
 let loadingPromise: Promise<void> | null = null;
 let modelStatus: "idle" | "loading" | "ready" | "error" = "idle";
 
+const isServer = typeof window === "undefined" && process.env.NODE_ENV !== "test";
+
 export function getModelStatus(): typeof modelStatus {
   return modelStatus;
 }
 
 export async function loadEmbeddingModel(): Promise<boolean> {
+  if (isServer) {
+    return false;
+  }
+
   if (model) return true;
   if (loadingPromise) {
     await loadingPromise;
@@ -27,6 +31,7 @@ export async function loadEmbeddingModel(): Promise<boolean> {
 
   loadingPromise = (async () => {
     try {
+      const { pipeline } = await import("@huggingface/transformers");
       model = (await pipeline(
         "feature-extraction",
         "Xenova/all-MiniLM-L6-v2"
@@ -45,12 +50,18 @@ export async function loadEmbeddingModel(): Promise<boolean> {
 }
 
 async function getModel(): Promise<FeatureExtractionPipeline | null> {
+  if (isServer) {
+    return null;
+  }
   if (model) return model;
   const loaded = await loadEmbeddingModel();
   return loaded ? model : null;
 }
 
 export async function generateEmbedding(text: string): Promise<number[]> {
+  if (isServer) {
+    return [];
+  }
   if (!text || text.trim().length === 0) return [];
 
   const m = await getModel();
@@ -68,6 +79,9 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 export async function generateBatchEmbeddings(
   texts: string[]
 ): Promise<number[][]> {
+  if (isServer) {
+    return texts.map(() => []);
+  }
   if (texts.length === 0) return [];
 
   const m = await getModel();

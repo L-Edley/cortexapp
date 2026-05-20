@@ -9,6 +9,7 @@ import {
   prepareBrainContextForApi,
 } from "@/lib/aion/brain/retrieval";
 import type { SafeBrainItem } from "@/lib/aion/brain/retrieval";
+import { prepareClientAionContext } from "@/lib/aion/clientContext";
 import { learnFromInteraction } from "@/lib/aion/brain/learning";
 import { saveMemory } from "@/lib/aion/brain/memory";
 import type { AionBrainItem } from "@/lib/aion/brain/types";
@@ -257,6 +258,13 @@ export default function CommandCenter() {
         profileContext = undefined;
       }
 
+      let clientContext: any = undefined;
+      try {
+        clientContext = await prepareClientAionContext(msg);
+      } catch (err) {
+        // ignore
+      }
+
       const payload: Record<string, unknown> = {
         message: msg,
         voiceMode: "assistant",
@@ -265,6 +273,7 @@ export default function CommandCenter() {
       if (brainContextFromClient)
         payload.brainContextFromClient = brainContextFromClient;
       if (profileContext) payload.profileContext = profileContext;
+      if (clientContext) payload.clientContext = clientContext;
 
       let data: any = null;
       let replyAccumulated = "";

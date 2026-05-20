@@ -6,6 +6,7 @@ import type {
   AionSource,
   RouteType,
   LearningCandidate,
+  AionClientContext,
 } from "./types";
 import type { SessionMessage } from "@/lib/sessionMemory";
 import { searchWeb, getMemory } from "./tools";
@@ -130,6 +131,7 @@ export async function runAgent(params: {
   brainContextFromClient?: Partial<AionBrainItem>[];
   profileContext?: string;
   sessionMessages?: SessionMessage[];
+  clientContext?: AionClientContext;
 }): Promise<AionResponse> {
   const { message, recentRecords, brainContextFromClient, sessionMessages } = params;
 
@@ -158,6 +160,7 @@ export async function runAgent(params: {
     recentRecords,
     brainContextFromClient,
     sessionMessages,
+    clientContext: params.clientContext,
   });
 
   const route: RouteType =

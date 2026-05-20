@@ -51,6 +51,14 @@ vi.mock("@/lib/aionScheduler", () => ({
   runAionScheduledJobs: vi.fn(async () => []),
 }));
 
+vi.mock("@/lib/aion/clientContext", () => ({
+  prepareClientAionContext: vi.fn(async () => ({
+    source: "client-dexie",
+    semanticResults: [],
+    brainItems: [],
+  })),
+}));
+
 vi.mock("@/components/VoiceCenter", () => ({
   default: ({ onSendMessage }: { onSendMessage: (text: string) => Promise<void> }) => {
     return createElement("div", {}, [

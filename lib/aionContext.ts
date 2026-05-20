@@ -14,8 +14,8 @@ import { loadProfile } from "@/lib/aionProfile";
 import { getLatestDailyInsight } from "@/lib/aion/patterns/runPatternAnalysis";
 import { getRecords } from "@/lib/storage";
 import { retrieveRelevantBrainContext } from "@/lib/aion/brain/retrieval";
-import { semanticSearch } from "@/lib/aion/vector/semanticIndex";
 import { getSystemPrompt } from "@/lib/aion/systemPrompt";
+import type { AionClientContext } from "@/lib/aion/types";
 
 import { getRecentSessionMessages } from "@/lib/sessionMemory";
 import type { SessionMessage } from "@/lib/sessionMemory";
@@ -56,6 +56,8 @@ export type AionContext = {
   currentDateTime: string;
   systemState: AionSystemState;
   recentSessionMessages?: SessionMessage[];
+  clientContextUsed?: boolean;
+  serverSemanticDisabled?: boolean;
 };
 
 export type AionContextDebug = {
@@ -65,6 +67,8 @@ export type AionContextDebug = {
   semanticResultsUsed: number;
   profileUsed: boolean;
   dailyInsightUsed: boolean;
+  clientContextUsed?: boolean;
+  serverSemanticDisabled?: boolean;
 };
 
 function emptyPatterns(): AionPatterns {
@@ -123,6 +127,7 @@ export async function buildSessionContext(
     brainItems?: AionBrainItem[];
     recentRecords?: CortexRecord[];
     contextPolicy?: AionContextPolicy;
+    clientContext?: AionClientContext;
   }
 ): Promise<AionContext> {
   const currentDateTime = new Date().toISOString();
@@ -200,22 +205,40 @@ export async function buildSessionContext(
   }
 
   if (!policy || policy.loadSemanticSearch) {
-    try {
-      const items =
-        options?.brainItems ?? (await retrieveRelevantBrainContext(userInput));
-      fallback.relevantBrainItems = items.slice(0, 3);
-    } catch {
-      /* brain unavailable */
-    }
+    if (options?.clientContext) {
+      fallback.clientContextUsed = true;
+      if (options.clientContext.brainItems) {
+        fallback.relevantBrainItems = options.clientContext.brainItems.slice(0, 3);
+      }
+      if (options.clientContext.semanticResults) {
+        fallback.semanticResults = options.clientContext.semanticResults.slice(0, 3);
+      }
+    } else {
+      const isServerEnv = typeof window === "undefined" && process.env.NODE_ENV !== "test";
+      if (isServerEnv) {
+        fallback.serverSemanticDisabled = true;
+        fallback.relevantBrainItems = [];
+        fallback.semanticResults = [];
+      } else {
+        try {
+          const items =
+            options?.brainItems ?? (await retrieveRelevantBrainContext(userInput));
+          fallback.relevantBrainItems = items.slice(0, 3);
+        } catch {
+          /* brain unavailable */
+        }
 
-    try {
-      const results = await semanticSearch(userInput, {
-        topK: 3,
-        threshold: 0.35,
-      });
-      fallback.semanticResults = results.slice(0, 3);
-    } catch {
-      /* semantic search unavailable */
+        try {
+          const { semanticSearch } = await import("@/lib/aion/vector/semanticIndex");
+          const results = await semanticSearch(userInput, {
+            topK: 3,
+            threshold: 0.35,
+          });
+          fallback.semanticResults = results.slice(0, 3);
+        } catch {
+          /* semantic search unavailable */
+        }
+      }
     }
   }
 
@@ -246,6 +269,8 @@ export function buildContextDebug(context: AionContext): AionContextDebug {
     semanticResultsUsed: context.semanticResults.length,
     profileUsed: context.profile !== null,
     dailyInsightUsed: context.dailyInsight !== null,
+    clientContextUsed: context.clientContextUsed,
+    serverSemanticDisabled: context.serverSemanticDisabled,
   };
 }
 

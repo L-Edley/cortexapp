@@ -6,7 +6,7 @@ export type AionBrainItemType =
   | "pattern"
   | "procedure";
 
-export type AionBrainSource = "user" | "llm" | "web" | "system";
+export type AionBrainSource = "user" | "llm" | "web" | "system" | "system_seed";
 
 export type AionBrainItem = {
   id: string;

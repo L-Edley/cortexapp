@@ -1,7 +1,7 @@
 // components/AppShell.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Sidebar from "@/components/layout/Sidebar";
 import MobileNav from "@/components/layout/MobileNav";
 import DashboardView from "@/components/DashboardView";
@@ -11,6 +11,7 @@ import IdeasView from "@/components/IdeasView";
 import FinancesView from "@/components/FinancesView";
 import DailyReview from "@/components/DailyReview";
 import SettingsView from "@/components/SettingsView";
+import { hasSeededAionKnowledge, seedAionKnowledgeBase } from "@/lib/aionKnowledgeSeed";
 
 export type ActiveView = 
   | "dashboard" 
@@ -24,6 +25,15 @@ export type ActiveView =
 export default function AppShell() {
   // Começamos com o CommandCenter (Aion) como tela inicial
   const [activeView, setActiveView] = useState<ActiveView>("aion");
+
+  useEffect(() => {
+    // Inicialização segura em background do treinamento inicial do Aion
+    if (!hasSeededAionKnowledge()) {
+      seedAionKnowledgeBase().catch((err) => {
+        console.warn("[AION] Falha silenciosa no seed em background:", err);
+      });
+    }
+  }, []);
 
   return (
     <div className="flex h-screen w-full bg-background text-foreground overflow-hidden">
