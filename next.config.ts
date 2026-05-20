@@ -19,6 +19,28 @@ const nextConfig: NextConfig = {
     ],
   },
   output: 'standalone',
+  outputFileTracingExcludes: {
+    "/api/aion": [
+      "./node_modules/onnxruntime-node/**/*",
+      "./node_modules/@huggingface/transformers/**/*",
+      "./node_modules/@xenova/transformers/**/*"
+    ],
+    "/api/aion/stream": [
+      "./node_modules/onnxruntime-node/**/*",
+      "./node_modules/@huggingface/transformers/**/*",
+      "./node_modules/@xenova/transformers/**/*"
+    ],
+    "/api/cortex": [
+      "./node_modules/onnxruntime-node/**/*",
+      "./node_modules/@huggingface/transformers/**/*",
+      "./node_modules/@xenova/transformers/**/*"
+    ],
+    "/api/cortex/stream": [
+      "./node_modules/onnxruntime-node/**/*",
+      "./node_modules/@huggingface/transformers/**/*",
+      "./node_modules/@xenova/transformers/**/*"
+    ]
+  },
   transpilePackages: ['motion'],
   async headers() {
     return [

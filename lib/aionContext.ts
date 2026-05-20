@@ -13,7 +13,6 @@ import type { VectorSearchResult } from "@/lib/aion/vector/types";
 import { loadProfile } from "@/lib/aionProfile";
 import { getLatestDailyInsight } from "@/lib/aion/patterns/runPatternAnalysis";
 import { getRecords } from "@/lib/storage";
-import { retrieveRelevantBrainContext } from "@/lib/aion/brain/retrieval";
 import { getSystemPrompt } from "@/lib/aion/systemPrompt";
 import type { AionClientContext } from "@/lib/aion/types";
 
@@ -214,31 +213,9 @@ export async function buildSessionContext(
         fallback.semanticResults = options.clientContext.semanticResults.slice(0, 3);
       }
     } else {
-      const isServerEnv = typeof window === "undefined" && process.env.NODE_ENV !== "test";
-      if (isServerEnv) {
-        fallback.serverSemanticDisabled = true;
-        fallback.relevantBrainItems = [];
-        fallback.semanticResults = [];
-      } else {
-        try {
-          const items =
-            options?.brainItems ?? (await retrieveRelevantBrainContext(userInput));
-          fallback.relevantBrainItems = items.slice(0, 3);
-        } catch {
-          /* brain unavailable */
-        }
-
-        try {
-          const { semanticSearch } = await import("@/lib/aion/vector/semanticIndex");
-          const results = await semanticSearch(userInput, {
-            topK: 3,
-            threshold: 0.35,
-          });
-          fallback.semanticResults = results.slice(0, 3);
-        } catch {
-          /* semantic search unavailable */
-        }
-      }
+      fallback.serverSemanticDisabled = true;
+      fallback.relevantBrainItems = [];
+      fallback.semanticResults = [];
     }
   }
 

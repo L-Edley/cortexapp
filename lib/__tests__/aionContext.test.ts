@@ -430,11 +430,12 @@ describe("buildQueryPrompt", () => {
   });
 
   it("inclui brain items quando existem", async () => {
-    mockRetrieveRelevantBrainContext.mockResolvedValue([
-      makeBrainItem({ title: "Memória importante" }),
-    ]);
-
-    const ctx = await mod.buildSessionContext("teste");
+    const ctx = await mod.buildSessionContext("teste", {
+      clientContext: {
+        brainItems: [makeBrainItem({ title: "Memória importante" })],
+        semanticResults: [],
+      } as any,
+    });
     const prompt = mod.buildQueryPrompt("teste", ctx);
 
     expect(prompt).toContain("MEMÓRIAS RELEVANTES");
@@ -442,11 +443,14 @@ describe("buildQueryPrompt", () => {
   });
 
   it("inclui semantic results quando existem", async () => {
-    mockSemanticSearch.mockResolvedValue([
-      { sourceId: "s1", text: "documento relevante", type: "note" },
-    ]);
-
-    const ctx = await mod.buildSessionContext("teste");
+    const ctx = await mod.buildSessionContext("teste", {
+      clientContext: {
+        brainItems: [],
+        semanticResults: [
+          { sourceId: "s1", text: "documento relevante", type: "note", score: 0.9, tags: [] },
+        ],
+      } as any,
+    });
     const prompt = mod.buildQueryPrompt("teste", ctx);
 
     expect(prompt).toContain("BUSCA SEMÂNTICA");

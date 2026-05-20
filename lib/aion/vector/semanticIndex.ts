@@ -2,7 +2,6 @@ import type { VectorEntry, VectorRecordType, VectorSearchResult } from "./types"
 import type { CortexRecord } from "@/lib/types";
 import type { SyncRecord } from "@/lib/aion/sync/types";
 import type { AionBrainItem } from "@/lib/aion/brain/types";
-import { generateEmbedding } from "./embed";
 import { cosineSimilarity } from "./similarity";
 import { buildVectorTextFromRecord, buildVectorTextFromBrainItem } from "./text";
 import { upsertVector, getAllVectors, deleteVectorBySourceId } from "./store";
@@ -23,10 +22,19 @@ function mapCortexTypeToVectorType(type: string): VectorRecordType {
   }
 }
 
+let _embedModule: any;
+async function getEmbed() {
+  if (!_embedModule) {
+    _embedModule = await import("./embed");
+  }
+  return _embedModule;
+}
+
 export async function indexRecord(
   record: CortexRecord | SyncRecord
 ): Promise<void> {
   const text = buildVectorTextFromRecord(record);
+  const { generateEmbedding } = await getEmbed();
   const embedding = await generateEmbedding(text);
 
   if (embedding.length === 0) return;
@@ -53,6 +61,7 @@ export async function indexRecord(
 
 export async function indexBrainItem(item: AionBrainItem): Promise<void> {
   const text = buildVectorTextFromBrainItem(item);
+  const { generateEmbedding } = await getEmbed();
   const embedding = await generateEmbedding(text);
 
   if (embedding.length === 0) return;
@@ -80,6 +89,7 @@ export async function semanticSearch(
     threshold?: number;
   }
 ): Promise<VectorSearchResult[]> {
+  const { generateEmbedding } = await getEmbed();
   const queryEmbedding = await generateEmbedding(query);
 
   if (queryEmbedding.length === 0) return [];
