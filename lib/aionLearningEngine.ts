@@ -2,6 +2,7 @@ import { callWithFallback } from "@/lib/aionLLM";
 import { classifyLearningNeed, type LearningNeed } from "./aionKnowledgeGap";
 import { applyProjectGroundingToPrompt, blockKnownWrongInterpretations, isProjectDomainQuestion } from "./aionProjectGrounding";
 import { getOfficialDoctrineAnswer } from "./aionOfficialDoctrine";
+import { shouldUseWebResearch, runWebResearch } from "./aionWebResearch";
 
 export interface LearningEngineResult {
   reply: string;
@@ -10,6 +11,13 @@ export interface LearningEngineResult {
   learningSaved: boolean;
   learningType: LearningNeed;
   input: string;
+  debug?: {
+    webResearchUsed?: boolean;
+    webSearchProvider?: string;
+    sourcesCount?: number;
+    cacheHit?: boolean;
+    webResearchSkippedReason?: string;
+  };
 }
 
 export function classifyProviderLearning(input: string): LearningNeed {
@@ -27,7 +35,47 @@ export async function runLearningEngine(
 ): Promise<LearningEngineResult | null> {
   const needType = classifyProviderLearning(input);
 
-  // 1. Chamar provider
+  // ─── Web Research para fresh_info e trend ───
+  if (shouldUseWebResearch(input, needType)) {
+    const webResult = await runWebResearch(input);
+
+    if (webResult.webResearchSkippedReason) {
+      return {
+        reply: webResult.webResearchSkippedReason,
+        providerUsed: "web-research",
+        source: "provider",
+        learningSaved: false,
+        learningType: needType,
+        input,
+        debug: {
+          webResearchUsed: webResult.webResearchUsed,
+          webSearchProvider: webResult.webSearchProvider,
+          sourcesCount: webResult.sourcesCount,
+          cacheHit: webResult.cacheHit,
+          webResearchSkippedReason: webResult.webResearchSkippedReason,
+        },
+      };
+    }
+
+    if (webResult.summary) {
+      return {
+        reply: webResult.summary,
+        providerUsed: webResult.cacheHit ? "search-cache" : "web-research",
+        source: webResult.cacheHit ? "cache" : "provider",
+        learningSaved: true,
+        learningType: needType,
+        input,
+        debug: {
+          webResearchUsed: true,
+          webSearchProvider: webResult.webSearchProvider,
+          sourcesCount: webResult.sourcesCount,
+          cacheHit: webResult.cacheHit,
+        },
+      };
+    }
+  }
+
+  // ─── LLM Provider para outros tipos ───
   let systemPrompt = `Você é o motor de pesquisa profunda do Cortex. Forneça respostas diretas, ricas e precisas. ${context || ""}`;
 
   if (needType === "trend" && isProjectDomainQuestion(input)) {
@@ -49,9 +97,9 @@ export async function runLearningEngine(
         reply: doctrine.reply,
         providerUsed: "official-doctrine-fallback",
         source: "cache",
-        learningSaved: false, // fallback nativo não precisa ser salvo
+        learningSaved: false,
         learningType: "already_known",
-        input
+        input,
       };
     }
     return {
@@ -60,7 +108,7 @@ export async function runLearningEngine(
       source: "cache",
       learningSaved: false,
       learningType: "already_known",
-      input
+      input,
     };
   }
 
@@ -68,8 +116,8 @@ export async function runLearningEngine(
     reply: result.text,
     providerUsed: result.providerUsed || "groq",
     source: "provider",
-    learningSaved: false, // O Client será encarregado de efetuar o save se aplicável
+    learningSaved: false,
     learningType: needType,
-    input
+    input,
   };
 }

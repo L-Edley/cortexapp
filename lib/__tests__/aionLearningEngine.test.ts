@@ -1,12 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { runLearningEngine, shouldSaveLearning, classifyProviderLearning } from "../aionLearningEngine";
-import { classifyLearningNeed, detectKnowledgeGap, shouldUseLearningEngine } from "../aionKnowledgeGap";
+import { runLearningEngine } from "../aionLearningEngine";
+import { classifyLearningNeed, shouldUseLearningEngine } from "../aionKnowledgeGap";
+import {
+  shouldSaveLearning,
+  checkLearningCache,
+  learnFromProviderResponse,
+} from "../aionLearningEngine.client";
 
 const mockCallWithFallback = vi.hoisted(() => vi.fn());
 const mockSaveKnowledge = vi.hoisted(() => vi.fn());
 const mockSaveMemory = vi.hoisted(() => vi.fn());
 const mockSaveCachedSearch = vi.hoisted(() => vi.fn());
 const mockGetCachedSearch = vi.hoisted(() => vi.fn());
+
+const mockShouldUseWebResearch = vi.hoisted(() => vi.fn(() => false));
+const mockRunWebResearch = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/aionWebResearch", () => ({
+  shouldUseWebResearch: mockShouldUseWebResearch,
+  runWebResearch: mockRunWebResearch,
+  classifyQueryForWebResearch: vi.fn(),
+  summarizeWebSources: vi.fn(),
+}));
 
 vi.mock("@/lib/aionLLM", () => ({
   callWithFallback: mockCallWithFallback,
@@ -23,6 +38,10 @@ vi.mock("@/lib/aion/brain/memory", () => ({
 vi.mock("@/lib/aion/brain/searchCache", () => ({
   saveCachedSearch: mockSaveCachedSearch,
   getCachedSearch: mockGetCachedSearch,
+}));
+
+vi.mock("@/lib/aionWebSearchProvider", () => ({
+  getConfiguredProvider: vi.fn(() => ({ name: "manual_mock", search: vi.fn() })),
 }));
 
 describe("Aion Knowledge Gap & Learning Engine", () => {
@@ -79,39 +98,38 @@ describe("Aion Knowledge Gap & Learning Engine", () => {
     });
   });
 
-  describe("Learning Engine Execution", () => {
-    it("cache válido evita chamada ao provider", async () => {
-      mockGetCachedSearch.mockResolvedValueOnce("Resposta do cache");
-      const result = await runLearningEngine("novidades sobre IA");
-      
-      expect(result?.source).toBe("cache");
-      expect(result?.reply).toBe("Resposta do cache");
-      expect(mockCallWithFallback).not.toHaveBeenCalled();
+  describe("Client Save Functions", () => {
+    it("checkLearningCache retorna null quando não há cache", async () => {
+      mockGetCachedSearch.mockResolvedValueOnce(null);
+      const cached = await checkLearningCache("novidades sobre IA", "trend");
+      expect(cached).toBeNull();
     });
 
-    it("fresh_info chama provider e salva no searchCache", async () => {
-      mockGetCachedSearch.mockResolvedValueOnce(null); // Cache miss
-      mockCallWithFallback.mockResolvedValueOnce({ text: "Dólar está a 5 reais", providerUsed: "groq" });
-      mockSaveCachedSearch.mockResolvedValueOnce(true);
+    it("checkLearningCache retorna valor quando cache existe", async () => {
+      mockGetCachedSearch.mockResolvedValueOnce("Resposta do cache");
+      const cached = await checkLearningCache("novidades sobre IA", "trend");
+      expect(cached).toBe("Resposta do cache");
+    });
 
-      const result = await runLearningEngine("preço atual do dólar");
-      expect(result?.source).toBe("provider");
-      expect(result?.learningSaved).toBe(true);
-      expect(result?.learningType).toBe("fresh_info");
+    it("learnFromProviderResponse salva fresh_info no searchCache", async () => {
+      mockSaveCachedSearch.mockResolvedValueOnce(true);
+      const saved = await learnFromProviderResponse("preço atual do dólar", "Dólar está a 5 reais", "fresh_info");
+
+      expect(saved).toBe(true);
       expect(mockSaveCachedSearch).toHaveBeenCalledWith(
         "preço atual do dólar",
         "Dólar está a 5 reais",
         ["fresh_info", "learning_engine"],
-        expect.any(String) // expiresAt date
+        expect.any(String)
       );
       expect(mockSaveKnowledge).not.toHaveBeenCalled();
     });
 
-    it("strategic_analysis salva permanentemente em knowledge", async () => {
-      mockCallWithFallback.mockResolvedValueOnce({ text: "Use Workers", providerUsed: "groq" });
-      const result = await runLearningEngine("como estruturar Night Research?");
-      
-      expect(result?.learningType).toBe("strategic_analysis");
+    it("learnFromProviderResponse salva strategic_analysis em knowledge", async () => {
+      mockSaveKnowledge.mockResolvedValueOnce(true);
+      const saved = await learnFromProviderResponse("como estruturar Night Research?", "Use Workers", "strategic_analysis");
+
+      expect(saved).toBe(true);
       expect(mockSaveKnowledge).toHaveBeenCalledWith(
         expect.objectContaining({
           type: "decision",
@@ -120,11 +138,11 @@ describe("Aion Knowledge Gap & Learning Engine", () => {
       );
     });
 
-    it("project_decision salva em memory", async () => {
-      mockCallWithFallback.mockResolvedValueOnce({ text: "Perfeito, vou usar Dexie.", providerUsed: "groq" });
-      const result = await runLearningEngine("decidimos usar Dexie");
-      
-      expect(result?.learningType).toBe("project_decision");
+    it("learnFromProviderResponse salva project_decision em memory", async () => {
+      mockSaveMemory.mockResolvedValueOnce(true);
+      const saved = await learnFromProviderResponse("decidimos usar Dexie", "Perfeito, vou usar Dexie.", "project_decision");
+
+      expect(saved).toBe(true);
       expect(mockSaveMemory).toHaveBeenCalledWith(
         expect.objectContaining({
           type: "project_context",
@@ -133,20 +151,107 @@ describe("Aion Knowledge Gap & Learning Engine", () => {
       );
     });
 
-    it("trend salva em knowledge temporariamente (expiresAt)", async () => {
-      mockGetCachedSearch.mockResolvedValueOnce(null);
-      mockCallWithFallback.mockResolvedValueOnce({ text: "Novas libs em alta", providerUsed: "groq" });
-      
-      const result = await runLearningEngine("tendências de front-end");
-      expect(result?.learningType).toBe("trend");
-      
+    it("learnFromProviderResponse salva trend em knowledge com expiresAt", async () => {
+      mockSaveKnowledge.mockResolvedValueOnce(true);
+      const saved = await learnFromProviderResponse("tendências de front-end", "Novas libs em alta", "trend");
+
+      expect(saved).toBe(true);
       expect(mockSaveKnowledge).toHaveBeenCalledWith(
         expect.objectContaining({
           type: "research",
           tags: ["trend", "learning_engine"],
-          expiresAt: expect.any(String) // TTL exists
+          expiresAt: expect.any(String),
         })
       );
+    });
+
+    it("learnFromProviderResponse rejeita conteúdo sensível", async () => {
+      const saved = await learnFromProviderResponse("qual é minha senha?", "sua senha é 12345", "fresh_info");
+      expect(saved).toBe(false);
+      expect(mockSaveCachedSearch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Server runLearningEngine", () => {
+    it("delega ao LLM provider para stable_knowledge", async () => {
+      mockCallWithFallback.mockResolvedValueOnce({ text: "PWA é Progressive Web App", providerUsed: "groq" });
+      const result = await runLearningEngine("o que é PWA?");
+
+      expect(result).not.toBeNull();
+      expect(result?.reply).toBe("PWA é Progressive Web App");
+      expect(result?.source).toBe("provider");
+      expect(result?.learningSaved).toBe(false);
+    });
+
+    it("retorna fallback honesto quando web research não tem provider configurado para fresh_info", async () => {
+      mockShouldUseWebResearch.mockReturnValueOnce(true);
+      mockRunWebResearch.mockResolvedValueOnce({
+        query: "preço atual do dólar",
+        sources: [],
+        summary: "",
+        fetchedAt: new Date().toISOString(),
+        confidence: 0,
+        learningType: "fresh_info",
+        webResearchUsed: false,
+        webSearchProvider: "none",
+        sourcesCount: 0,
+        cacheHit: false,
+        webResearchSkippedReason: "Nenhum provedor de busca web configurado",
+      });
+
+      const result = await runLearningEngine("preço atual do dólar");
+
+      expect(result).not.toBeNull();
+      expect(result?.debug?.webResearchSkippedReason).toContain("Nenhum provedor de busca web configurado");
+      expect(result?.providerUsed).toBe("web-research");
+    });
+
+    it("usa web research para fresh_info quando provider configurado", async () => {
+      mockShouldUseWebResearch.mockReturnValueOnce(true);
+      mockRunWebResearch.mockResolvedValueOnce({
+        query: "preço atual do dólar",
+        sources: [{ title: "Fonte", url: "https://exemplo.com", snippet: "Dólar a 5,20" }],
+        summary: "Dólar está a R$5,20 hoje.",
+        fetchedAt: new Date().toISOString(),
+        confidence: 0.85,
+        learningType: "fresh_info",
+        webResearchUsed: true,
+        webSearchProvider: "manual_mock",
+        sourcesCount: 1,
+        cacheHit: false,
+        webResearchSkippedReason: null,
+      });
+
+      const result = await runLearningEngine("preço atual do dólar");
+
+      expect(result).not.toBeNull();
+      expect(result?.reply).toBe("Dólar está a R$5,20 hoje.");
+      expect(result?.source).toBe("provider");
+      expect(result?.debug?.webResearchUsed).toBe(true);
+    });
+
+    it("usa LLM provider para strategic_analysis (sem web research)", async () => {
+      mockCallWithFallback.mockResolvedValueOnce({ text: "Use Workers para tasks noturnas", providerUsed: "groq" });
+      const result = await runLearningEngine("como estruturar Night Research?");
+
+      expect(result).not.toBeNull();
+      expect(result?.reply).toBe("Use Workers para tasks noturnas");
+      expect(result?.providerUsed).toBe("groq");
+    });
+
+    it("retorna null quando LLM falha", async () => {
+      mockCallWithFallback.mockResolvedValueOnce({ text: null, providerUsed: "none" });
+      const result = await runLearningEngine("o que é PWA?");
+      expect(result).toBeNull();
+    });
+
+    it("aplica guardrails anti-MMORPG quando detecta confusão de projeto", async () => {
+      mockCallWithFallback.mockResolvedValueOnce({ text: "Night Research é uma skill de caçador noturno no MMORPG.", providerUsed: "groq" });
+      const result = await runLearningEngine("o que é Night Research?");
+
+      expect(result).not.toBeNull();
+      expect(result?.reply).toContain("O Aion é a assistente inteligente do Cortex");
+      expect(result?.providerUsed).toBe("grounding-guardrail");
     });
   });
 });

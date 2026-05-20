@@ -9,6 +9,7 @@ import { getMemory } from "@/lib/aion/memory";
 import { parseRecordFromDecision } from "@/lib/aion/tools";
 import { resolveRelativeDatePtBR } from "@/lib/aion/dateResolver";
 import { generateId } from "@/lib/aion/brain/brainStore";
+import { saveMemory } from "@/lib/aion/brain/memory";
 import { getContextPolicy } from "./aionContextPolicy";
 import { enhanceHumanConversation } from "./aionConversation";
 import { getOfficialDoctrineAnswer } from "@/lib/aionOfficialDoctrine";
@@ -247,6 +248,8 @@ async function handleMemoryIntent(input: string, startTime: number): Promise<Aio
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+
+  await saveMemory(brainItem).catch(() => {});
 
   return {
     text: `Anotado: "${title}". Vou lembrar disso.`,
