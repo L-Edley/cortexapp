@@ -58,6 +58,11 @@ vi.mock("@/lib/aion/dateResolver", () => ({
 vi.mock("@/lib/aion/brain/brainStore", () => ({
   generateId: mockGenerateId,
   isBrainAvailable: vi.fn(() => true),
+  getBrainDB: vi.fn(async () => null),
+}));
+
+vi.mock("@/lib/aionKnowledgeGap", () => ({
+  shouldUseLearningEngine: vi.fn(() => false),
 }));
 
 let mod: typeof import("@/lib/aionReason");
@@ -471,7 +476,7 @@ describe("reason", () => {
       route: "gemini",
     });
 
-    const result = await mod.reason("qual meu objetivo atual?");
+    const result = await mod.reason("qual meu foco neste semestre?");
 
     expect(result.route).toBe("llm");
     expect(mockBuildSessionContext).toHaveBeenCalled();

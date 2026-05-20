@@ -3,6 +3,7 @@ import type { DailyInsight } from "@/lib/aion/patternDetector";
 import { getRecords, getTopPendingTasks, getSpentToday } from "@/lib/storageProvider";
 import { loadProfile } from "@/lib/aionProfile";
 import { getLatestDailyInsight } from "@/lib/aion/patterns/runPatternAnalysis";
+import { getKnowledge } from "@/lib/aion/brain/knowledge";
 
 const BRIEFING_STORAGE_KEY = "aion_briefing_date";
 
@@ -15,6 +16,8 @@ export type DailyBriefing = {
   priorities: string[];
   habits: string[];
   insights: string[];
+  recentLearnings?: string[];
+  trends?: string[];
   suggestion?: string;
   question?: string;
   generatedAt: string;
@@ -127,6 +130,7 @@ export async function generateBriefing(): Promise<DailyBriefing> {
   const records = getRecords();
   const topTasks = getTopPendingTasks(3);
   const totalSpentToday = getSpentToday();
+  const allKnowledge = await getKnowledge();
 
   const pendingTasks = records.filter(
     (r) => r.type === "task" && r.status === "pending"
@@ -173,6 +177,22 @@ export async function generateBriefing(): Promise<DailyBriefing> {
     ? `Gastos hoje: ${formatMoney(totalSpentToday)}`
     : undefined;
 
+  const recentLearnings: string[] = [];
+  const trends: string[] = [];
+  
+  if (allKnowledge && allKnowledge.length > 0) {
+    const sorted = [...allKnowledge].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const learningItems = sorted.filter(k => k.tags.includes("learning_engine"));
+    
+    for (const item of learningItems) {
+      if (item.tags.includes("trend")) {
+        if (trends.length < 2) trends.push(item.title);
+      } else {
+        if (recentLearnings.length < 2) recentLearnings.push(item.title);
+      }
+    }
+  }
+
   return {
     id: `briefing-${today}`,
     date: today,
@@ -182,6 +202,8 @@ export async function generateBriefing(): Promise<DailyBriefing> {
     priorities,
     habits,
     insights,
+    recentLearnings: recentLearnings.length > 0 ? recentLearnings : undefined,
+    trends: trends.length > 0 ? trends : undefined,
     suggestion,
     question,
     generatedAt: new Date().toISOString(),

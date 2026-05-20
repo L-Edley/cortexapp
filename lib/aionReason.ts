@@ -14,6 +14,9 @@ import { resolveRelativeDatePtBR } from "@/lib/aion/dateResolver";
 import { generateId } from "@/lib/aion/brain/brainStore";
 import { getContextPolicy } from "./aionContextPolicy";
 import { enhanceHumanConversation } from "./aionConversation";
+import { getOfficialDoctrineAnswer } from "@/lib/aionOfficialDoctrine";
+import { shouldUseLearningEngine } from "./aionKnowledgeGap";
+import { runLearningEngine } from "./aionLearningEngine";
 
 
 export type AionReasonIntent =
@@ -73,7 +76,7 @@ export function classifyIntent(input: string): AionReasonIntent {
 
   if (normalized.length < 3) return "unknown";
 
-  if (/^(salve|salva|guarde|guarda|lembre|lembra)\s+(que|disso)\b/i.test(normalized)) {
+  if (/^(salve|salva|registre|registra|lembre|lembra|guarde|guarda|anote|anota)\s+(que|disso)\b/i.test(normalized)) {
     return "memory";
   }
 
@@ -110,6 +113,39 @@ export function classifyIntent(input: string): AionReasonIntent {
   }
 
   return "unknown";
+}
+
+export function applyDoctrineGuardrails(text: string): string {
+  if (!text) return text;
+  let cleaned = text;
+
+  // Obsidian principal?
+  const obsidianRegex = /obsidian\s+e\s+(o\s+)?banco\s+principal/i;
+  if (obsidianRegex.test(cleaned)) {
+    cleaned = cleaned.replace(obsidianRegex, "o Obsidian não é o banco principal do Cortex (ele funciona como exportação/espelho Markdown)");
+  }
+
+  // Provider principal?
+  const noProviderRegex = /(nao\s+ha|nao\s+existe)\s+provider\s+principal\s+definido|provider\s+principal\s+nao\s+definido/i;
+  if (noProviderRegex.test(cleaned)) {
+    cleaned = cleaned.replace(noProviderRegex, "o provider principal é o Groq");
+  }
+
+  // Conhecimento limitado?
+  const knowledgeLimit1 = /ate\s+meu\s+conhecimento/gi;
+  const knowledgeLimit2 = /meu\s+conhecimento\s+vai\s+ate/gi;
+  cleaned = cleaned.replace(knowledgeLimit1, "atualmente");
+  cleaned = cleaned.replace(knowledgeLimit2, "as informações oficiais indicam que");
+
+  // Subistituições padrão exatas com e sem acentos
+  cleaned = cleaned
+    .replace(/Obsidian é o banco principal/gi, "O Obsidian não é o banco principal do Cortex. Ele funciona como exportação/espelho Markdown")
+    .replace(/não há provider principal definido/gi, "o provider principal é o Groq")
+    .replace(/provider principal não definido/gi, "o provider principal é o Groq")
+    .replace(/até meu conhecimento/gi, "atualmente")
+    .replace(/meu conhecimento vai até/gi, "as informações oficiais indicam que");
+
+  return cleaned;
 }
 
 function enforceToneRules(text: string, voiceReply: string): { text: string; voiceReply: string } {
@@ -174,7 +210,7 @@ function localToReasonResponse(local: AionResponse, intent: AionReasonIntent, st
 
 async function handleMemoryIntent(input: string, startTime: number): Promise<AionReasonResponse> {
   const content = input
-    .replace(/^(salve|salva|guarde|guarda|lembre|lembra)\s+(que|disso)\s*/i, "")
+    .replace(/^(salve|salva|registre|registra|lembre|lembra|guarde|guarda|anote|anota)\s+(que|disso)\s*/i, "")
     .trim();
   const title = content.charAt(0).toUpperCase() + content.slice(1);
 
@@ -520,6 +556,9 @@ async function llmPipeline(
     };
   }
 
+  decision.reply = applyDoctrineGuardrails(decision.reply);
+  decision.voiceReply = applyDoctrineGuardrails(decision.voiceReply);
+
   // 6. Local storage writes (save memory, save records)
   const storageStart = Date.now();
   if (decision.action === "save_memory" && decision.record) {
@@ -689,6 +728,67 @@ export async function reason(
   const intent = classifyIntent(userInput);
   classifyIntentMs = Date.now() - classifyStart;
 
+  // Desvio Prévio de Memória
+  const normalizedLower = userInput.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const startsWithMemoryPrefix = /^(salve|salva|registre|registra|lembre|lembra|guarde|guarda|anote|anota)\s+(que|disso)\b/i.test(normalizedLower);
+
+  if (intent === "memory" || startsWithMemoryPrefix) {
+    const memoryStart = Date.now();
+    const res = await handleMemoryIntent(userInput, startTime);
+    const storageMs = Date.now() - memoryStart;
+    const metrics = {
+      totalMs: Date.now() - startTime,
+      classifyIntentMs,
+      smartRouterMs: 0,
+      contextBuildMs: 0,
+      semanticSearchMs: 0,
+      llmMs: 0,
+      storageMs,
+      providerUsed: res.providerUsed || "aion-brain",
+      fallbackUsed: false,
+      intent: "memory" as const,
+    };
+    res.debug = {
+      ...res.debug,
+      latencyMetrics: metrics,
+    };
+    logLatencyMetrics(metrics);
+    return humanizeReasonResponse(userInput, res, options);
+  }
+
+  // Roteador de Doutrina Oficial do Projeto
+  const doctrineAnswer = getOfficialDoctrineAnswer(userInput);
+  if (doctrineAnswer) {
+    const metrics = {
+      totalMs: Date.now() - startTime,
+      classifyIntentMs,
+      smartRouterMs: 0,
+      contextBuildMs: 0,
+      semanticSearchMs: 0,
+      llmMs: 0,
+      storageMs: 0,
+      providerUsed: "official-doctrine",
+      fallbackUsed: false,
+      intent,
+    };
+    const res: AionReasonResponse = {
+      text: doctrineAnswer.reply,
+      voiceReply: doctrineAnswer.voiceReply,
+      intent,
+      actionsExecuted: [],
+      nextSteps: [],
+      confidence: 1.0,
+      providerUsed: "official-doctrine",
+      route: "brain",
+      timeMs: Date.now() - startTime,
+      debug: {
+        latencyMetrics: metrics,
+      },
+    };
+    logLatencyMetrics(metrics);
+    return humanizeReasonResponse(userInput, res, options);
+  }
+
   const routerStart = Date.now();
   const routing = smartRouter(userInput.trim());
   smartRouterMs = Date.now() - routerStart;
@@ -772,6 +872,52 @@ export async function reason(
     };
     logLatencyMetrics(metrics);
     return humanizeReasonResponse(userInput, res, options);
+  }
+
+  // AQUI: Integração P6.7A - Aion Learning Engine
+  if (shouldUseLearningEngine(userInput, options?.clientContext)) {
+    const learningStart = Date.now();
+    const learningContext = options?.profileContext ? `\nContexto do Perfil: ${options.profileContext}` : "";
+    const learningRes = await runLearningEngine(userInput, learningContext, options);
+    
+    if (learningRes) {
+      const totalMs = Date.now() - startTime;
+      const metrics = {
+        totalMs,
+        classifyIntentMs,
+        smartRouterMs,
+        contextBuildMs: 0,
+        semanticSearchMs: 0,
+        llmMs: Date.now() - learningStart,
+        storageMs: 0,
+        providerUsed: learningRes.providerUsed,
+        fallbackUsed: false,
+        intent,
+      };
+
+      const res: AionReasonResponse = {
+        text: learningRes.reply,
+        voiceReply: learningRes.reply.split(/[.!?;]/)[0] + ".",
+        intent,
+        actionsExecuted: [],
+        nextSteps: [],
+        confidence: 0.9,
+        providerUsed: learningRes.providerUsed,
+        route: "llm",
+        timeMs: totalMs,
+        debug: {
+          latencyMetrics: metrics,
+          learningEngineUsed: true,
+          cacheHit: learningRes.source === "cache",
+          learningSaved: learningRes.learningSaved,
+          learningType: learningRes.learningType,
+          groqLearningUsed: learningRes.providerUsed === "groq",
+        },
+      };
+
+      logLatencyMetrics(metrics);
+      return humanizeReasonResponse(userInput, res, options);
+    }
   }
 
   const res = await llmPipeline(userInput, intent, options, startTime, classifyIntentMs, smartRouterMs);

@@ -33,6 +33,13 @@ export async function answerFromBrain(
 
   const best = activeItems[0];
 
+  const normalized = message
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+  const isMemory = /^(salve|salva|registre|registra|lembre|lembra|guarde|guarda|anote|anota)\s+(que|disso)\b/i.test(normalized);
+
   switch (best.type) {
     case "procedure":
       return `Aqui está o procedimento que aprendi:\n\n${best.content}`;
@@ -43,6 +50,9 @@ export async function answerFromBrain(
     case "user_preference":
       return best.content;
     case "research":
+      if (isMemory) {
+        return best.content;
+      }
       return `${best.content}\n\n(Esta informação pode estar desatualizada — salvei ela antes.)`;
     case "pattern":
       return best.content;
