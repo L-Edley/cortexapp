@@ -20,6 +20,11 @@ const nextConfig: NextConfig = {
   },
   output: 'standalone',
   outputFileTracingExcludes: {
+    "/*": [
+      "./node_modules/onnxruntime-node/**/*",
+      "./node_modules/@huggingface/transformers/**/*",
+      "./node_modules/@xenova/transformers/**/*"
+    ],
     "/api/aion": [
       "./node_modules/onnxruntime-node/**/*",
       "./node_modules/@huggingface/transformers/**/*",

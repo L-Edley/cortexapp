@@ -5,7 +5,7 @@ import { prepareClientAionContext } from "../clientContext";
 const mockSemanticSearch = vi.fn();
 const mockRetrieveRelevantBrainContext = vi.fn();
 
-vi.mock("../vector/client", () => ({
+vi.mock("../vector/semanticIndex", () => ({
   semanticSearch: (msg: string, options?: any) => mockSemanticSearch(msg, options),
 }));
 

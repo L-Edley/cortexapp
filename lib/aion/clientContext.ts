@@ -1,6 +1,20 @@
-import { retrieveRelevantBrainContext } from "./brain/retrieval";
-import { semanticSearch } from "./vector/client";
 import type { AionClientContext } from "./types";
+
+let _retrievalModule: any;
+async function getRetrieval() {
+  if (!_retrievalModule) {
+    _retrievalModule = await import("./brain/retrieval");
+  }
+  return _retrievalModule;
+}
+
+let _semanticModule: any;
+async function getSemantic() {
+  if (!_semanticModule) {
+    _semanticModule = await import("./vector/semanticIndex");
+  }
+  return _semanticModule;
+}
 
 /**
  * Prepara o contexto do cliente de forma segura no navegador.
@@ -19,6 +33,7 @@ export async function prepareClientAionContext(message: string): Promise<AionCli
 
   try {
     // 1. Busca semântica local
+    const { semanticSearch } = await getSemantic();
     const rawSemantic = await semanticSearch(message, { topK: 3 });
     const semanticResults = rawSemantic.map((item) => ({
       id: item.id,
@@ -32,6 +47,7 @@ export async function prepareClientAionContext(message: string): Promise<AionCli
     }));
 
     // 2. Recuperação de itens do cérebro (Dexie)
+    const { retrieveRelevantBrainContext } = await getRetrieval();
     const rawBrain = await retrieveRelevantBrainContext(message);
     const brainItems = rawBrain.map((item) => ({
       id: item.id,

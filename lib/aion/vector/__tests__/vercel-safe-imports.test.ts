@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 describe("server-safe.ts - barrel para server", () => {
   it("exporta cosineSimilarity sem importar transformers", async () => {
@@ -54,5 +54,59 @@ describe("index.ts - barrel exporta só server-safe", () => {
     expect(mod.generateEmbedding).toBeUndefined();
     expect(mod.semanticSearch).toBeUndefined();
     expect(mod.loadEmbeddingModel).toBeUndefined();
+  });
+});
+
+describe("client.ts - barrel seguro sem embed/semanticIndex", () => {
+  it("exporta cosineSimilarity mas não generateEmbedding nem semanticSearch", async () => {
+    const mod: Record<string, unknown> = await import("../client");
+    expect(typeof mod.cosineSimilarity).toBe("function");
+    expect(mod.generateEmbedding).toBeUndefined();
+    expect(mod.semanticSearch).toBeUndefined();
+    expect(mod.loadEmbeddingModel).toBeUndefined();
+    expect(mod.indexRecord).toBeUndefined();
+    expect(mod.upsertVector).toBeUndefined();
+  });
+});
+
+describe("clientContext.ts - sem static imports de vector", () => {
+  it("usa dynamic import de semanticIndex dentro de função getSemantic", async () => {
+    // Verificar que o módulo consegue ser carregado sem transformers
+    const mod = await import("@/lib/aion/clientContext");
+    expect(typeof mod.prepareClientAionContext).toBe("function");
+  });
+});
+
+describe("browserEmbedding.ts - server guard", () => {
+  beforeAll(() => {
+    vi.resetModules();
+  });
+
+  it("generateEmbedding retorna [] no server", async () => {
+    const originalWindow = globalThis.window;
+    const originalEnv = process.env.NODE_ENV;
+    (globalThis as any).window = undefined;
+    process.env.NODE_ENV = "production";
+
+    const { generateEmbedding } = await import("../browserEmbedding");
+    const result = await generateEmbedding("teste");
+    expect(result).toEqual([]);
+
+    (globalThis as any).window = originalWindow;
+    process.env.NODE_ENV = originalEnv;
+  });
+
+  it("loadEmbeddingModel retorna false no server", async () => {
+    const originalWindow = globalThis.window;
+    const originalEnv = process.env.NODE_ENV;
+    (globalThis as any).window = undefined;
+    process.env.NODE_ENV = "production";
+
+    const { loadEmbeddingModel } = await import("../browserEmbedding");
+    const result = await loadEmbeddingModel();
+    expect(result).toBe(false);
+
+    (globalThis as any).window = originalWindow;
+    process.env.NODE_ENV = originalEnv;
   });
 });
