@@ -247,3 +247,162 @@ async def write_study_report(app_id: str, report) -> Optional[str]:
     logger.info("Study report written to %s", rel_path)
     return rel_path
 
+
+async def write_desktop_study_report(app_id: str, report) -> Optional[str]:
+    """Grava um relatório de estudo desktop no Obsidian vault."""
+    vault = _get_vault_path()
+    if not vault:
+        logger.warning("Obsidian vault path not configured — skipping desktop study report write")
+        return None
+    dt = _now()
+    month = _month_path(dt)
+    fname = _file_timestamp(dt)
+    try:
+        rel_dir = _resolve_safe_path(vault, app_id, "study", "desktop", month)
+    except Exception as e:
+        logger.error("Error resolving safe path for desktop study report: %s", e)
+        return None
+    rel_path = os.path.join(rel_dir, f"{fname}.md")
+    safe_id = _sanitize_app_id(app_id)
+    front = _build_frontmatter(
+        report.id, "desktop_study_report", safe_id, report.created_at,
+        confidence=report.confidence,
+        tags=["study", "desktop", "aion"]
+    )
+    body_parts = [
+        f"\n\n# Desktop Study Report\n",
+        f"**Sessão ID:** `{report.session_id}`",
+        f"**Duração:** {report.duration_seconds:.1f}s",
+        f"**Fontes Lidas:** {report.sources_read}",
+        f"**Chamadas de IA (Teacher):** {report.teacher_calls}",
+        f"**Gaps/Knowledge Salvos:** {report.knowledge_saved}",
+        f"**Confiança Média:** {report.confidence:.2f}\n",
+        f"\n## Tópicos Estudados\n"
+    ]
+    for t in report.topics:
+        body_parts.append(f"- {_sanitize_content(t)}")
+    if report.conclusions:
+        body_parts.append("\n## Conclusões Acadêmicas e Descobertas\n")
+        for c in report.conclusions:
+            body_parts.append(f"- {_sanitize_content(c)}")
+    if report.warnings:
+        body_parts.append("\n## Avisos / Anomalias da Sessão\n")
+        for w in report.warnings:
+            body_parts.append(f"- `{_sanitize_content(w)}`")
+    body = "\n".join(body_parts)
+    await _write_file(rel_path, front + body)
+    logger.info("Desktop study report written to %s", rel_path)
+    return rel_path
+
+
+async def write_teacher_lesson(app_id: str, answer: Any) -> Optional[str]:
+    """Grava uma lição de professor no Obsidian vault."""
+    vault = _get_vault_path()
+    if not vault:
+        logger.warning("Obsidian vault path not configured — skipping teacher lesson write")
+        return None
+    dt = _now()
+    month = _month_path(dt)
+    fname = _file_timestamp(dt)
+    
+    rel_dir = _resolve_safe_path(vault, app_id, "teachers", month)
+    rel_path = os.path.join(rel_dir, f"{fname}.md")
+    
+    safe_id = _sanitize_app_id(app_id)
+    
+    ans_id = getattr(answer, "id", "teacher_unknown")
+    provider = getattr(answer, "provider", "unknown")
+    confidence = getattr(answer, "confidence", 1.0)
+    created_at = getattr(answer, "created_at", dt.isoformat())
+    tags = getattr(answer, "tags", [])
+    if not tags:
+        tags = ["teacher", provider, "study"]
+        
+    front = _build_frontmatter(
+        id_str=ans_id,
+        type_str="teacher_lesson",
+        app_id=safe_id,
+        created_at=created_at,
+        confidence=confidence,
+        tags=tags,
+        extra={"provider": provider}
+    )
+    
+    question = getattr(answer, "question", "")
+    summary = getattr(answer, "summary", "")
+    full_answer = getattr(answer, "answer", "")
+    
+    s_question = _sanitize_content(question)
+    s_summary = _sanitize_content(summary)
+    s_answer = _sanitize_content(full_answer)
+    
+    body = (
+        f"\n\n# {s_question}\n\n"
+        f"## Pergunta\n\n{s_question}\n\n"
+        f"## Resumo\n\n{s_summary}\n\n"
+        f"## Conclusões\n\n{s_summary}\n\n"
+        f"## Resposta completa\n\n{s_answer}\n"
+    )
+    
+    await _write_file(rel_path, front + body)
+    logger.info("Teacher lesson written to %s", rel_path)
+    return rel_path
+
+
+async def write_dev_lesson(app_id: str, lesson: Any) -> Optional[str]:
+    """Grava uma lição técnica do Dev Mode no Obsidian vault."""
+    vault = _get_vault_path()
+    if not vault:
+        logger.warning("Obsidian vault path not configured — skipping dev lesson write")
+        return None
+    dt = _now()
+    month = _month_path(dt)
+    fname = _file_timestamp(dt)
+    
+    try:
+        rel_dir = _resolve_safe_path(vault, app_id, "dev", month)
+    except Exception as e:
+        logger.error("Error resolving safe path for dev lesson: %s", e)
+        return None
+        
+    rel_path = os.path.join(rel_dir, f"{fname}.md")
+    safe_id = _sanitize_app_id(app_id)
+    
+    lesson_id = f"dev_lesson_{fname}"
+    confidence = getattr(lesson, "confidence", 0.90)
+    created_at = getattr(lesson, "created_at", dt.isoformat())
+    tags = getattr(lesson, "tags", [])
+    if not tags:
+        tags = ["dev", "lesson", "aion"]
+        
+    front = _build_frontmatter(
+        id_str=lesson_id,
+        type_str="dev_lesson",
+        app_id=safe_id,
+        created_at=created_at,
+        confidence=confidence,
+        tags=tags,
+        extra={"source": "dev_mode"}
+    )
+    
+    title = getattr(lesson, "title", "Lição Técnica")
+    summary = getattr(lesson, "summary", "")
+    content = getattr(lesson, "content", "")
+    
+    s_title = _sanitize_content(title)
+    s_summary = _sanitize_content(summary)
+    s_content = _sanitize_content(content)
+    
+    body = (
+        f"\n\n# {s_title}\n\n"
+        f"## Resumo Técnico\n\n{s_summary}\n\n"
+        f"## Conteúdo e Descobertas\n\n{s_content}\n"
+    )
+    
+    await _write_file(rel_path, front + body)
+    logger.info("Dev lesson written to %s", rel_path)
+    return rel_path
+
+
+
+

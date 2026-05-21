@@ -50,6 +50,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Falha ao agendar pesquisa noturna: %s", e)
 
+    logger.info("Agendando Background Sync...")
+    try:
+        from aion.sync.sync_scheduler import schedule_cloud_sync
+        if settings.SUPABASE_ENABLED:
+            schedule_cloud_sync("cortex", interval_minutes=15)
+            logger.info("Background Sync agendado a cada 15 minutos.")
+        else:
+            logger.info("SUPABASE_ENABLED is False — Background Sync não ativado.")
+    except Exception as e:
+        logger.warning("Falha ao agendar Background Sync: %s", e)
+
+    logger.info("Verificando e recuperando sessões stale de Desktop Study...")
+    try:
+        from aion.study.study_desktop_agent import recover_stale_sessions
+        await recover_stale_sessions("cortex")
+        logger.info("Recuperação de sessões stale concluída.")
+    except Exception as e:
+        logger.warning("Falha ao recuperar sessões stale na inicialização: %s", e)
+
     logger.info("AION Intelligence Core pronto para servir requisições.")
     logger.info("====================================================")
 
@@ -685,4 +704,460 @@ async def get_study_status(
     if job["error"]:
         result["error"] = job["error"]
     return result
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/sync
+# ---------------------------------------------------------------------------
+
+@app.post("/v1/tenant/{app_id}/sync")
+async def trigger_sync(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    """Força sincronização manual da fila local para a nuvem."""
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    from aion.sync.cloud_sync import sync_pending_to_supabase
+    
+    report = await sync_pending_to_supabase(tenant_id, limit=100)
+    return {
+        "status": "completed",
+        "report": report.model_dump()
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/tenant/{app_id}/sync/status
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/tenant/{app_id}/sync/status")
+async def sync_status(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    """Recupera status consolidado da fila de sync e do agendador."""
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    
+    from aion.sync.sync_queue import get_sync_status
+    from aion.sync.sync_scheduler import get_sync_schedule_status
+    
+    status = await get_sync_status(tenant_id)
+    scheduler_status = get_sync_schedule_status(tenant_id)
+    
+    return {
+        "status": status.model_dump(),
+        "scheduler": scheduler_status
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/sync/retry-failed
+# ---------------------------------------------------------------------------
+
+@app.post("/v1/tenant/{app_id}/sync/retry-failed")
+async def retry_failed_sync(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    """Pega itens failed e volta para pending (limitado)."""
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    
+    from aion.sync.sync_queue import retry_failed_sync as queue_retry_failed
+    from fastapi import HTTPException
+    
+    try:
+        res = await queue_retry_failed(tenant_id)
+        retried = res.get("retried", 0)
+    except Exception as e:
+        logger.error("Falha ao tentar resetar itens failed para pending: %s", e)
+        raise HTTPException(status_code=500, detail="Internal server error resetting sync queue")
+        
+    if retried == 0:
+        message = "Nenhum item failed para retry."
+    else:
+        message = f"{retried} itens falhos reenfileirados para sincronização."
+        
+    return {
+        "status": "completed",
+        "retried": retried,
+        "message": message
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/study/desktop/start
+# ---------------------------------------------------------------------------
+
+class DesktopStudyStartRequest(BaseModel):
+    topics: Optional[List[str]] = Field(default=None, description="Tópicos para estudo manual")
+    duration_minutes: int = Field(default=60, ge=1, le=480, description="Duração da sessão em minutos (1 a 480)")
+    max_sources: int = Field(default=20, ge=1, le=100, description="Máximo de fontes a ler (1 a 100)")
+    depth: str = Field(default="normal", description="Profundidade: shallow, normal, deep")
+
+@app.post("/v1/tenant/{app_id}/study/desktop/start")
+async def start_desktop_study_endpoint(
+    request: Request,
+    body: DesktopStudyStartRequest,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    if tenant_id != app_id:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado para este tenant (Tenant Isolation).")
+
+    from aion.study.study_desktop_agent import start_desktop_study
+    try:
+        session = await start_desktop_study(
+            app_id=tenant_id,
+            topics=body.topics,
+            duration_minutes=body.duration_minutes,
+            max_sources=body.max_sources,
+            depth=body.depth
+        )
+        return {
+            "status": "started",
+            "session_id": session.id,
+            "app_id": session.app_id
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error("Erro ao iniciar estudo desktop: %s", e)
+        raise HTTPException(status_code=500, detail="Erro interno ao iniciar sessão de estudo.")
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/study/desktop/{session_id}/stop
+# ---------------------------------------------------------------------------
+
+@app.post("/v1/tenant/{app_id}/study/desktop/{session_id}/stop")
+async def stop_desktop_study_endpoint(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+    session_id: str = Path(..., description="ID da sessão de estudo"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    if tenant_id != app_id:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado para este tenant (Tenant Isolation).")
+
+    from aion.study.study_desktop_agent import stop_desktop_study
+    try:
+        status_res = await stop_desktop_study(tenant_id, session_id)
+        return {
+            "status": "cancelled",
+            "session_id": status_res.session_id,
+            "app_id": status_res.app_id
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        logger.error("Erro ao parar estudo desktop %s: %s", session_id, e)
+        raise HTTPException(status_code=500, detail="Erro interno ao parar sessão de estudo.")
+
+# ---------------------------------------------------------------------------
+# GET /v1/tenant/{app_id}/study/desktop/{session_id}
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/tenant/{app_id}/study/desktop/{session_id}")
+async def get_desktop_study_status_endpoint(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+    session_id: str = Path(..., description="ID da sessão de estudo"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    if tenant_id != app_id:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado para este tenant (Tenant Isolation).")
+
+    from aion.study.study_desktop_agent import get_desktop_study_status
+    try:
+        status_res = await get_desktop_study_status(tenant_id, session_id)
+        return status_res.model_dump()
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        logger.error("Erro ao obter status do estudo desktop %s: %s", session_id, e)
+        raise HTTPException(status_code=500, detail="Erro interno ao buscar status da sessão.")
+
+# ---------------------------------------------------------------------------
+# GET /v1/tenant/{app_id}/study/desktop/last-report
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/tenant/{app_id}/study/desktop/last-report")
+async def get_last_desktop_study_report_endpoint(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    if tenant_id != app_id:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado para este tenant (Tenant Isolation).")
+
+    from aion.study.study_desktop_agent import get_last_desktop_study_report
+    try:
+        report = await get_last_desktop_study_report(tenant_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Nenhum relatório de estudo desktop encontrado.")
+        return report.model_dump()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Erro ao obter último relatório do estudo desktop: %s", e)
+        raise HTTPException(status_code=500, detail="Erro interno ao buscar último relatório.")
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/teach/ask (P10.6)
+# ---------------------------------------------------------------------------
+
+class TeachAskBody(BaseModel):
+    teacher: str
+    topic: str
+    save: bool = False
+    tags: List[str] = []
+
+@app.post("/v1/tenant/{app_id}/teach/ask")
+async def teach_ask_endpoint(
+    request: Request,
+    body: TeachAskBody,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    if tenant_id != app_id:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado para este tenant (Tenant Isolation).")
+
+    from aion.study.teacher_adapters import ask_teacher, save_teacher_answer
+    try:
+        ans = await ask_teacher(body.teacher, body.topic)
+        saved_id = None
+        if body.save:
+            saved_id = await save_teacher_answer(tenant_id, ans, tags=body.tags)
+            
+        return {
+            "status": "success",
+            "answer": {
+                "provider": ans.provider,
+                "summary": ans.summary,
+                "confidence": ans.confidence,
+                "should_save": ans.should_save
+            },
+            "saved_id": saved_id
+        }
+    except Exception as e:
+        logger.error("Erro no teach_ask_endpoint para %s: %s", app_id, e)
+        raise HTTPException(status_code=500, detail="Erro interno ao consultar o professor.")
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/teach/import (P10.6)
+# ---------------------------------------------------------------------------
+
+class TeachImportBody(BaseModel):
+    source: str = "opencode"
+    file_path: str
+    save: bool = False
+
+@app.post("/v1/tenant/{app_id}/teach/import")
+async def teach_import_endpoint(
+    request: Request,
+    body: TeachImportBody,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    if tenant_id != app_id:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado para este tenant (Tenant Isolation).")
+
+    from aion.study.teacher_adapters import import_opencode_lesson, save_teacher_answer
+    try:
+        ans = await import_opencode_lesson(tenant_id, body.file_path)
+        saved_id = None
+        if body.save:
+            saved_id = await save_teacher_answer(tenant_id, ans)
+            
+        return {
+            "status": "success",
+            "provider": ans.provider,
+            "saved_id": saved_id,
+            "warnings": ans.warnings
+        }
+    except PermissionError as pe:
+        logger.warning("Permission error no teach_import_endpoint: %s", pe)
+        raise HTTPException(status_code=403, detail=str(pe))
+    except FileNotFoundError as fnfe:
+        logger.warning("File not found no teach_import_endpoint: %s", fnfe)
+        raise HTTPException(status_code=404, detail=str(fnfe))
+    except ValueError as ve:
+        logger.warning("Value error no teach_import_endpoint: %s", ve)
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error("Erro no teach_import_endpoint para %s: %s", app_id, e)
+        raise HTTPException(status_code=500, detail="Erro interno ao importar lição.")
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/dev/analyze (P10.7)
+# ---------------------------------------------------------------------------
+
+class DevAnalyzeBody(BaseModel):
+    project_path: str
+
+@app.post("/v1/tenant/{app_id}/dev/analyze")
+async def dev_analyze_endpoint(
+    request: Request,
+    body: DevAnalyzeBody,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    if tenant_id != app_id:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado para este tenant (Tenant Isolation).")
+
+    from aion.dev.dev_mode import analyze_repository
+    try:
+        res = await analyze_repository(tenant_id, body.project_path)
+        return {
+            "status": "success",
+            "analysis": res.model_dump()
+        }
+    except ValueError as ve:
+        logger.warning("ValueError no dev_analyze_endpoint: %s", ve)
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error("Erro no dev_analyze_endpoint para %s: %s", app_id, e)
+        raise HTTPException(status_code=500, detail="Erro interno ao analisar repositório.")
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/dev/plan (P10.7)
+# ---------------------------------------------------------------------------
+
+class DevPlanBody(BaseModel):
+    project_path: str
+    goal: str
+
+@app.post("/v1/tenant/{app_id}/dev/plan")
+async def dev_plan_endpoint(
+    request: Request,
+    body: DevPlanBody,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    if tenant_id != app_id:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado para este tenant (Tenant Isolation).")
+
+    from aion.dev.dev_mode import create_dev_plan
+    try:
+        res = await create_dev_plan(tenant_id, body.goal, body.project_path)
+        return {
+            "status": "success",
+            "plan": res.model_dump()
+        }
+    except ValueError as ve:
+        logger.warning("ValueError no dev_plan_endpoint: %s", ve)
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error("Erro no dev_plan_endpoint para %s: %s", app_id, e)
+        raise HTTPException(status_code=500, detail="Erro interno ao criar plano de desenvolvimento.")
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/dev/review (P10.7)
+# ---------------------------------------------------------------------------
+
+class DevReviewBody(BaseModel):
+    project_path: str
+
+@app.post("/v1/tenant/{app_id}/dev/review")
+async def dev_review_endpoint(
+    request: Request,
+    body: DevReviewBody,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    if tenant_id != app_id:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado para este tenant (Tenant Isolation).")
+
+    from aion.dev.dev_mode import review_code_changes
+    try:
+        res = await review_code_changes(tenant_id, body.project_path)
+        return {
+            "status": "success",
+            "review": res.model_dump()
+        }
+    except ValueError as ve:
+        logger.warning("ValueError no dev_review_endpoint: %s", ve)
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error("Erro no dev_review_endpoint para %s: %s", app_id, e)
+        raise HTTPException(status_code=500, detail="Erro interno ao revisar código.")
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/dev/validate (P10.7)
+# ---------------------------------------------------------------------------
+
+class DevValidateBody(BaseModel):
+    project_path: str
+    commands: List[str]
+
+@app.post("/v1/tenant/{app_id}/dev/validate")
+async def dev_validate_endpoint(
+    request: Request,
+    body: DevValidateBody,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    if tenant_id != app_id:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado para este tenant (Tenant Isolation).")
+
+    from aion.dev.dev_mode import run_validation_commands
+    try:
+        res = await run_validation_commands(body.project_path, body.commands)
+        return {
+            "status": "success",
+            "report": res.model_dump()
+        }
+    except ValueError as ve:
+        logger.warning("ValueError no dev_validate_endpoint: %s", ve)
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error("Erro no dev_validate_endpoint para %s: %s", app_id, e)
+        raise HTTPException(status_code=500, detail="Erro interno ao executar validações.")
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/dev/save-lesson (P10.7)
+# ---------------------------------------------------------------------------
+
+class DevSaveLessonBody(BaseModel):
+    title: str
+    content: str
+    summary: str = ""
+    tags: List[str] = []
+    confidence: float = 0.90
+
+@app.post("/v1/tenant/{app_id}/dev/save-lesson")
+async def dev_save_lesson_endpoint(
+    request: Request,
+    body: DevSaveLessonBody,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    if tenant_id != app_id:
+        raise HTTPException(status_code=403, detail="Acesso não autorizado para este tenant (Tenant Isolation).")
+
+    from aion.dev.dev_mode import save_technical_lesson
+    try:
+        saved_id = await save_technical_lesson(tenant_id, body.model_dump())
+        if not saved_id:
+            raise HTTPException(status_code=400, detail="Persistence blocked. Sensitive data or invalid format.")
+            
+        return {
+            "status": "success",
+            "saved_id": saved_id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Erro no dev_save_lesson_endpoint para %s: %s", app_id, e)
+        raise HTTPException(status_code=500, detail="Erro interno ao salvar lição técnica.")
+
+
+
+
 
