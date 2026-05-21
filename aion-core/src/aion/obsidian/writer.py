@@ -1,0 +1,210 @@
+import os
+import re
+import json
+import logging
+import datetime
+import asyncio
+from typing import Dict, Any, Optional, List
+
+logger = logging.getLogger("aion.obsidian.writer")
+
+# Padrões para remoção de conteúdo malicioso
+_SCRIPT_PATTERN = re.compile(r"<script\b[^<]*(?:(?!</script>)<[^<]*)*</script\s*>", re.IGNORECASE | re.DOTALL)
+_EVENT_HANDLER_PATTERN = re.compile(r"\s+on\w+\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s>]*)", re.IGNORECASE)
+_JS_PROTOCOL_PATTERN = re.compile(r"\b(javascript|data)\s*:", re.IGNORECASE)
+
+
+def _sanitize_content(content: str) -> str:
+    content = _SCRIPT_PATTERN.sub("", content)
+    content = _EVENT_HANDLER_PATTERN.sub("", content)
+    content = _JS_PROTOCOL_PATTERN.sub("blocked:", content)
+    return content
+
+
+def _sanitize_app_id(app_id: str) -> str:
+    safe = "".join(c for c in app_id if c.isalnum() or c in ("-", "_")).strip()
+    if not safe:
+        raise ValueError(f"Invalid app_id after sanitization: '{app_id}'")
+    return safe
+
+
+def _resolve_safe_path(vault: str, app_id: str, *parts: str) -> str:
+    safe_id = _sanitize_app_id(app_id)
+    vault_real = os.path.realpath(vault)
+    target = os.path.realpath(os.path.join(vault_real, safe_id, *parts))
+    if not target.startswith(vault_real + os.sep) and target != vault_real:
+        raise ValueError(
+            f"Path traversal blocked: '{target}' is outside vault '{vault_real}'"
+        )
+    return target
+
+
+def _get_vault_path() -> Optional[str]:
+    return os.environ.get("OBSIDIAN_VAULT_PATH")
+
+
+async def _ensure_dir(path: str) -> None:
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, os.makedirs, path, 0o755, True)
+
+
+async def _write_file(path: str, content: str) -> None:
+    await _ensure_dir(os.path.dirname(path))
+    loop = asyncio.get_running_loop()
+
+    def _write():
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+    await loop.run_in_executor(None, _write)
+
+
+async def _append_file(path: str, content: str) -> None:
+    await _ensure_dir(os.path.dirname(path))
+    loop = asyncio.get_running_loop()
+
+    def _append():
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(content)
+
+    await loop.run_in_executor(None, _append)
+
+
+def _build_frontmatter(
+    id_str: str,
+    type_str: str,
+    app_id: str,
+    created_at: str,
+    confidence: Optional[float] = None,
+    tags: Optional[List[str]] = None,
+    extra: Optional[Dict[str, Any]] = None,
+) -> str:
+    lines = ["---"]
+    lines.append(f"id: {id_str}")
+    lines.append(f"type: {type_str}")
+    lines.append(f"tenant: {app_id}")
+    if confidence is not None:
+        lines.append(f"confidence: {confidence}")
+    lines.append(f"created_at: {created_at}")
+    if tags:
+        tags_str = ", ".join(tags)
+        lines.append(f"tags: [{tags_str}]")
+    if extra:
+        for k, v in extra.items():
+            lines.append(f"{k}: {v}")
+    lines.append("---")
+    return "\n".join(lines)
+
+
+def _generate_title(content: str, max_len: int = 60) -> str:
+    first_line = content.split("\n")[0].strip()
+    if len(first_line) > max_len:
+        return first_line[:max_len].rstrip() + "..."
+    return first_line
+
+
+def _now() -> datetime.datetime:
+    return datetime.datetime.utcnow()
+
+
+def _month_path(dt: datetime.datetime) -> str:
+    return dt.strftime("%Y-%m")
+
+
+def _file_timestamp(dt: datetime.datetime) -> str:
+    return dt.strftime("%Y-%m-%d-%H-%M")
+
+
+def _daily_filename(dt: datetime.datetime) -> str:
+    return dt.strftime("%Y-%m-%d")
+
+
+def _id_from_dt(prefix: str, dt: datetime.datetime) -> str:
+    return f"{prefix}_{dt.strftime('%Y%m%dT%H%M%S')}"
+
+
+async def write_memory(app_id: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    vault = _get_vault_path()
+    if not vault:
+        logger.warning("Obsidian vault path not configured — skipping memory write")
+        return None
+    dt = _now()
+    month = _month_path(dt)
+    fname = _file_timestamp(dt)
+    safe_content = _sanitize_content(content)
+    rel_dir = _resolve_safe_path(vault, app_id, "memory", month)
+    rel_path = os.path.join(rel_dir, f"{fname}.md")
+    mem_id = _id_from_dt("mem", dt)
+    title = _generate_title(safe_content)
+    extra = None
+    if metadata:
+        extra = {"metadata": json.dumps(metadata, ensure_ascii=False)}
+    safe_id = _sanitize_app_id(app_id)
+    front = _build_frontmatter(mem_id, "memory", safe_id, dt.isoformat(), extra=extra)
+    body = f"\n\n# {title}\n\n{safe_content}\n"
+    await _write_file(rel_path, front + body)
+    logger.info("Memory written to %s", rel_path)
+    return rel_path
+
+
+async def write_knowledge(app_id: str, content: str, tags: List[str], confidence: float = 1.0) -> Optional[str]:
+    vault = _get_vault_path()
+    if not vault:
+        logger.warning("Obsidian vault path not configured — skipping knowledge write")
+        return None
+    dt = _now()
+    month = _month_path(dt)
+    fname = _file_timestamp(dt)
+    safe_content = _sanitize_content(content)
+    rel_dir = _resolve_safe_path(vault, app_id, "knowledge", month)
+    rel_path = os.path.join(rel_dir, f"{fname}.md")
+    know_id = _id_from_dt("know", dt)
+    title = _generate_title(safe_content)
+    safe_id = _sanitize_app_id(app_id)
+    front = _build_frontmatter(know_id, "knowledge", safe_id, dt.isoformat(), confidence=confidence, tags=tags)
+    body = f"\n\n# {title}\n\n{safe_content}\n"
+    await _write_file(rel_path, front + body)
+    logger.info("Knowledge written to %s", rel_path)
+    return rel_path
+
+
+async def write_decision(app_id: str, content: str, reasoning: str) -> Optional[str]:
+    vault = _get_vault_path()
+    if not vault:
+        logger.warning("Obsidian vault path not configured — skipping decision write")
+        return None
+    dt = _now()
+    month = _month_path(dt)
+    fname = _file_timestamp(dt)
+    safe_content = _sanitize_content(content)
+    safe_reasoning = _sanitize_content(reasoning)
+    rel_dir = _resolve_safe_path(vault, app_id, "decisions", month)
+    rel_path = os.path.join(rel_dir, f"{fname}.md")
+    dec_id = _id_from_dt("dec", dt)
+    title = _generate_title(safe_content)
+    safe_id = _sanitize_app_id(app_id)
+    front = _build_frontmatter(dec_id, "decision", safe_id, dt.isoformat())
+    body = f"\n\n# {title}\n\n{safe_content}\n\n## Reasoning\n\n{safe_reasoning}\n"
+    await _write_file(rel_path, front + body)
+    logger.info("Decision written to %s", rel_path)
+    return rel_path
+
+
+async def write_action_log(app_id: str, action: Dict[str, Any], result: Dict[str, Any]) -> Optional[str]:
+    vault = _get_vault_path()
+    if not vault:
+        logger.warning("Obsidian vault path not configured — skipping action log write")
+        return None
+    dt = _now()
+    fname = _daily_filename(dt)
+    safe_id = _sanitize_app_id(app_id)
+    rel_dir = _resolve_safe_path(vault, app_id, "actions")
+    rel_path = os.path.join(rel_dir, f"{fname}.md")
+    act_id = _id_from_dt("act", dt)
+    front = _build_frontmatter(act_id, "action", safe_id, dt.isoformat())
+    action_str = json.dumps(action, ensure_ascii=False, indent=2)
+    result_str = json.dumps(result, ensure_ascii=False, indent=2)
+    entry = f"{front}\n\n## Action\n\n```json\n{action_str}\n```\n\n## Result\n\n```json\n{result_str}\n```\n\n---\n"
+    await _append_file(rel_path, entry)
+    logger.info("Action log appended to %s", rel_path)
+    return rel_path

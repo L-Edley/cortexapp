@@ -609,4 +609,62 @@ describe("Aion Latency optimizations & instrumentation", () => {
     // Nenhuma propriedade nas métricas deve guardar o texto
     expect(JSON.stringify(metrics)).not.toContain("senha secreta 123");
   });
+
+  describe("P6.10 Understanding Layer Integration", () => {
+    it("adiciona understanding debug no resultado", async () => {
+      mockSmartRouter.mockReturnValue(makeApiRoute());
+      mockCallWithFallback.mockResolvedValue({
+        text: JSON.stringify({ reply: "resposta", voiceReply: "voz", action: "none", confidence: 0.9 }),
+        providerUsed: "mock-llm",
+      });
+
+      const result = await mod.reason("o que é PWA?");
+
+      expect(result.debug?.understandingIntent).toBeDefined();
+      expect(result.debug?.routeHint).toBeDefined();
+      expect(result.debug?.understandingConfidence).toBeDefined();
+      expect(result.debug?.extractedEntities).toBeDefined();
+      expect(result.debug?.shouldUseWeb).toBeDefined();
+      expect(result.debug?.shouldUseLLM).toBeDefined();
+    });
+
+    it("Learning Engine não intercepta tarefa simples (routeHint: smart_router)", async () => {
+      mockSmartRouter.mockReturnValue(makeLocalResponse({
+        response: {
+          reply: "Tarefa registrada: \"Comprar pão\".",
+          voiceReply: "Tarefa registrada.",
+          action: "create_record",
+          record: { type: "task", title: "Comprar pão" },
+          confidence: 0.9,
+        },
+      }));
+
+      const result = await mod.reason("me lembra de comprar pão amanhã");
+
+      expect(result.debug?.routeHint).toBe("smart_router");
+      expect(result.route).toBe("local");
+      expect(result.actionsExecuted).toContain("create_record");
+      expect(mockCallWithFallback).not.toHaveBeenCalled();
+    });
+
+    it("Official Doctrine tem prioridade sobre LLM e inclui understanding", async () => {
+      const result = await mod.reason("o Obsidian é o banco principal?");
+
+      expect(result.debug?.routeHint).toBe("official_doctrine");
+      expect(result.debug?.understandingIntent).toBe("ask_project_doctrine");
+      expect(result.providerUsed).toBe("official-doctrine");
+      expect(mockCallWithFallback).not.toHaveBeenCalled();
+    });
+
+    it("save_memory inclui routeHint e understandingIntent", async () => {
+      mockSaveMemory.mockResolvedValue({ id: "id" });
+
+      const result = await mod.reason("salve que eu gosto de pizza");
+
+      expect(result.debug?.routeHint).toBe("smart_router");
+      expect(result.debug?.understandingIntent).toBe("save_memory");
+      expect(result.intent).toBe("memory");
+      expect(mockSaveMemory).toHaveBeenCalled();
+    });
+  });
 });

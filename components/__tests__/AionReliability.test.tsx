@@ -101,6 +101,22 @@ vi.mock("@/lib/aionVoice", () => ({
   stopSpeaking: vi.fn(),
 }));
 
+vi.mock("@/lib/aionGateway", () => ({
+  isCoreAvailable: vi.fn(async () => false),
+  getSource: vi.fn(() => "local" as const),
+  aionChat: vi.fn(async (input: string) => ({
+    text: "Resposta local.",
+    voiceReply: "Resposta local.",
+    intent: "question",
+    actionsExecuted: [],
+    nextSteps: [],
+    confidence: 0.8,
+    providerUsed: "local",
+    route: "local",
+    timeMs: 10,
+  })),
+}));
+
 describe("Aion Error Classification & Reliability", () => {
   beforeEach(() => {
     vi.clearAllMocks();

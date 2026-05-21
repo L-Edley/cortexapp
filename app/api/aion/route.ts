@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAgent } from "@/lib/aion/agent";
+import { callCoreChat } from "@/lib/aion/coreProxy";
 import type { AionRequest } from "@/lib/aion/types";
 
 export async function POST(req: NextRequest) {
@@ -8,20 +9,6 @@ export async function POST(req: NextRequest) {
 
     console.log("[AION] ===============================");
     console.log("[AION] POST /api/aion");
-    console.log("[AION] AI_PROVIDER:", process.env.AI_PROVIDER || "não definido");
-    console.log("[AION] AI_MODEL:", process.env.AI_MODEL || "não definido");
-    console.log(
-      "[AION] OPENROUTER_API_KEY presente:",
-      Boolean(process.env.OPENROUTER_API_KEY)
-    );
-    console.log(
-      "[AION] AI_API_KEY presente:",
-      Boolean(process.env.AI_API_KEY)
-    );
-    console.log(
-      "[AION] GEMINI_API_KEY presente:",
-      Boolean(process.env.GEMINI_API_KEY)
-    );
 
     if (
       !body.message ||
@@ -34,6 +21,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Try AION Core first
+    const coreResponse = await callCoreChat(body.message);
+    if (coreResponse && coreResponse.status === "success" && coreResponse.ui_reply) {
+      console.log("[AION] Core respondeu com sucesso");
+      return NextResponse.json({
+        reply: coreResponse.ui_reply,
+        voiceReply: coreResponse.ui_reply,
+        action: coreResponse.action_executed || "none",
+        record: null,
+        confidence: coreResponse.data?.confidence ?? 0.5,
+        fallbackUsed: false,
+        debug: {
+          route: "api",
+          provider: "aion-core",
+          providerUsed: "aion-core",
+          fallbackUsed: false,
+          intent: "question",
+        },
+      });
+    }
+
+    console.log("[AION] Core indisponível — usando fallback local");
     const result = await runAgent({
       message: body.message,
       recentRecords: body.recentRecords,
@@ -46,7 +55,6 @@ export async function POST(req: NextRequest) {
 
     console.log("[AION] fallbackUsed:", result.fallbackUsed);
     console.log("[AION] debug:", JSON.stringify(result.debug));
-    console.log("[AION] resposta enviada ao cliente");
     console.log("[AION] ===============================");
 
     return NextResponse.json(result);
@@ -61,8 +69,9 @@ export async function POST(req: NextRequest) {
         confidence: 0,
         fallbackUsed: true,
         debug: {
-          provider: process.env.AI_PROVIDER || "n/a",
-          model: process.env.AI_MODEL || "n/a",
+          route: "fallback",
+          provider: "n/a",
+          providerUsed: "error",
           fallbackUsed: true,
           fallbackReason: "unknown",
         },

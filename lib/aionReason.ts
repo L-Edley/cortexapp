@@ -15,6 +15,7 @@ import { enhanceHumanConversation } from "./aionConversation";
 import { getOfficialDoctrineAnswer } from "@/lib/aionOfficialDoctrine";
 import { shouldUseLearningEngine } from "./aionKnowledgeGap";
 import { runLearningEngine } from "./aionLearningEngine";
+import { understandAionRequest } from "./aionRequestUnderstanding";
 
 
 function formatBrainAnswer(message: string, context: AionBrainItem[]): string | null {
@@ -726,6 +727,9 @@ export async function reason(
     return buildEmptyResponse(startTime);
   }
 
+  // ─── P6.10 — Aion Request Understanding Layer ───
+  const understanding = understandAionRequest(userInput);
+
   const classifyStart = Date.now();
   const intent = classifyIntent(userInput);
   classifyIntentMs = Date.now() - classifyStart;
@@ -752,6 +756,12 @@ export async function reason(
     };
     res.debug = {
       ...res.debug,
+      understandingIntent: understanding.primaryIntent,
+      routeHint: understanding.routeHint,
+      understandingConfidence: understanding.confidence,
+      extractedEntities: understanding.entities,
+      shouldUseWeb: understanding.shouldUseWeb,
+      shouldUseLLM: understanding.shouldUseLLM,
       latencyMetrics: metrics,
     };
     logLatencyMetrics(metrics);
@@ -784,6 +794,12 @@ export async function reason(
       route: "brain",
       timeMs: Date.now() - startTime,
       debug: {
+        understandingIntent: understanding.primaryIntent,
+        routeHint: understanding.routeHint,
+        understandingConfidence: understanding.confidence,
+        extractedEntities: understanding.entities,
+        shouldUseWeb: understanding.shouldUseWeb,
+        shouldUseLLM: understanding.shouldUseLLM,
         latencyMetrics: metrics,
       },
     };
@@ -811,6 +827,12 @@ export async function reason(
     };
     res.debug = {
       ...res.debug,
+      understandingIntent: understanding.primaryIntent,
+      routeHint: understanding.routeHint,
+      understandingConfidence: understanding.confidence,
+      extractedEntities: understanding.entities,
+      shouldUseWeb: understanding.shouldUseWeb,
+      shouldUseLLM: understanding.shouldUseLLM,
       latencyMetrics: metrics,
     };
     logLatencyMetrics(metrics);
@@ -844,6 +866,12 @@ export async function reason(
         route: "local" as const,
         timeMs: Date.now() - startTime,
         debug: {
+          understandingIntent: understanding.primaryIntent,
+          routeHint: understanding.routeHint,
+          understandingConfidence: understanding.confidence,
+          extractedEntities: understanding.entities,
+          shouldUseWeb: understanding.shouldUseWeb,
+          shouldUseLLM: understanding.shouldUseLLM,
           latencyMetrics: metrics,
         },
       };
@@ -870,6 +898,12 @@ export async function reason(
     };
     res.debug = {
       ...res.debug,
+      understandingIntent: understanding.primaryIntent,
+      routeHint: understanding.routeHint,
+      understandingConfidence: understanding.confidence,
+      extractedEntities: understanding.entities,
+      shouldUseWeb: understanding.shouldUseWeb,
+      shouldUseLLM: understanding.shouldUseLLM,
       latencyMetrics: metrics,
     };
     logLatencyMetrics(metrics);
@@ -877,7 +911,8 @@ export async function reason(
   }
 
   // AQUI: Integração P6.7A - Aion Learning Engine
-  if (shouldUseLearningEngine(userInput, options?.clientContext)) {
+  // P6.10: Respeitar routeHint — se for comando pessoal com alta confiança, não usar Learning Engine
+  if (shouldUseLearningEngine(userInput, options?.clientContext) && understanding.routeHint !== "smart_router") {
     const learningStart = Date.now();
     const learningContext = options?.profileContext ? `\nContexto do Perfil: ${options.profileContext}` : "";
     const learningRes = await runLearningEngine(userInput, learningContext, options);
@@ -913,6 +948,12 @@ export async function reason(
         route: "llm",
         timeMs: totalMs,
         debug: {
+          understandingIntent: understanding.primaryIntent,
+          routeHint: understanding.routeHint,
+          understandingConfidence: understanding.confidence,
+          extractedEntities: understanding.entities,
+          shouldUseWeb: understanding.shouldUseWeb,
+          shouldUseLLM: understanding.shouldUseLLM,
           latencyMetrics: metrics,
           learningEngineUsed: true,
           cacheHit: learningRes.source === "cache",
@@ -927,7 +968,26 @@ export async function reason(
     }
   }
 
+  // Current event guard: Core is offline, don't let LLM invent data
+  if (intent === "question" && /copa|seleção|técnico|jogos?\s+de\s+hoje|notícias?\s+sobre|últimas\s+notícias|previsão\s+do\s+tempo|dólar|euro|bitcoin|cotação|resultados?\s+de\s+hoje|campeão\s+atual|classificação\s+atual|tabela\s+do|quanto\s+tá|quanto\s+está|eleições\s+2026|brasileirão\s+2026|libertadores\s+2026/i.test(userInput)) {
+    const offlineMsg = "O AION Core está offline. Para responder perguntas sobre eventos atuais, ligue o Core com `npm run dev:full` na raiz do projeto.";
+    const offlineVoice = "Core offline. Ligue o Core para informações atuais.";
+    logLatencyMetrics({ totalMs: Date.now() - startTime, classifyIntentMs, smartRouterMs, contextBuildMs: 0, semanticSearchMs: 0, llmMs: 0, storageMs: 0, providerUsed: "current-event-guard", fallbackUsed: true, intent });
+    return humanizeReasonResponse(userInput, {
+      text: offlineMsg, voiceReply: offlineVoice, intent, actionsExecuted: [], nextSteps: [], confidence: 0.9, providerUsed: "current-event-guard", route: "local", timeMs: Date.now() - startTime, debug: { latencyMetrics: { totalMs: Date.now() - startTime, classifyIntentMs, smartRouterMs, contextBuildMs: 0, semanticSearchMs: 0, llmMs: 0, storageMs: 0, providerUsed: "current-event-guard", fallbackUsed: true, intent } }
+    }, options);
+  }
+
   const res = await llmPipeline(userInput, intent, options, startTime, classifyIntentMs, smartRouterMs);
+  res.debug = {
+    ...res.debug,
+    understandingIntent: understanding.primaryIntent,
+    routeHint: understanding.routeHint,
+    understandingConfidence: understanding.confidence,
+    extractedEntities: understanding.entities,
+    shouldUseWeb: understanding.shouldUseWeb,
+    shouldUseLLM: understanding.shouldUseLLM,
+  };
   if (res.debug?.latencyMetrics) {
     logLatencyMetrics(res.debug.latencyMetrics as any);
   }

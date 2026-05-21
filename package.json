@@ -5,6 +5,8 @@
   "description": "Cortex — Motor de organização pessoal, financeira e estratégica",
   "scripts": {
     "dev": "next dev",
+    "dev:core": "cd aion-core && python run_core.py",
+    "dev:full": "concurrently -n core,cortex -c cyan,magenta \"npm run dev:core\" \"npm run dev\"",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -13,6 +15,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@aion/sdk": "file:packages/aion-sdk",
     "@elevenlabs/client": "^1.7.0",
     "@google/generative-ai": "^0.24.1",
     "@hookform/resolvers": "^5.2.1",
@@ -43,6 +46,7 @@
     "@vitejs/plugin-react": "^6.0.2",
     "@vitest/coverage-v8": "^4.1.6",
     "autoprefixer": "^10.4.21",
+    "concurrently": "^9.2.1",
     "eslint": "9.39.1",
     "eslint-config-next": "16.0.8",
     "jsdom": "^29.1.1",

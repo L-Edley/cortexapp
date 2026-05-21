@@ -12,7 +12,7 @@ import type { SessionMessage } from "@/lib/sessionMemory";
 import { searchWeb, getMemory } from "./tools";
 import { getOrderedProviders } from "@/lib/ai";
 import type { ProviderEntry } from "@/lib/ai";
-import { reason } from "@/lib/aionReason";
+import { aionChat } from "@/lib/aionGateway";
 
 const LEARN_PATTERNS =
   /(decidi|vou|vamos|como|passo|forma|maneira|pesquisar|buscar|saber|descobrir|sempre|nunca|percebi|notei|padrão|comportamento|habito|cortex|aion|projeto|prefiro|gosto|queria|gostaria)/i;
@@ -156,7 +156,7 @@ export async function runAgent(params: {
   const memory = getMemory();
   memory.addMessage({ role: "user", content: message });
 
-  const reasonResult = await reason(message, {
+  const reasonResult = await aionChat(message, {
     recentRecords,
     brainContextFromClient,
     sessionMessages,

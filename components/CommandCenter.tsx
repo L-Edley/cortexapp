@@ -35,6 +35,7 @@ import { speak, stopSpeaking } from "@/lib/aionVoice";
 import { normalizeAionError, getFallbackAction } from "@/lib/aionError";
 import VoiceCenter from "@/components/VoiceCenter";
 
+
 const VoiceCenterCockpit = dynamic(
   () => import("@/components/voice/VoiceCenter"),
   {
@@ -60,6 +61,7 @@ export default function CommandCenter() {
   const [followUp, setFollowUp] = useState<string | null>(null);
   const [tips, setTips] = useState<string[]>([]);
   const [latestMetrics, setLatestMetrics] = useState<any | null>(null);
+  const [coreSource, setCoreSource] = useState<"core" | "local">("local");
 
   const [micState, setMicState] = useState<
     "idle" | "listening" | "processing" | "speaking" | "error"
@@ -123,6 +125,30 @@ export default function CommandCenter() {
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval>;
+
+    const check = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch("/api/aion/health");
+        const data = await res.json();
+        if (!cancelled) setCoreSource(data.source as "core" | "local");
+      } catch {
+        if (!cancelled) setCoreSource("local");
+      }
+    };
+
+    check();
+    timer = setInterval(check, 30_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
     };
   }, []);
 
@@ -696,6 +722,7 @@ export default function CommandCenter() {
           followUp={followUp}
           tips={tips}
           sources={sources}
+          coreSource={coreSource}
         />
       ) : (
         <div className="command-center">

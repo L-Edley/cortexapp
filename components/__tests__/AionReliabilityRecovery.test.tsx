@@ -108,6 +108,22 @@ vi.mock("@/components/voice/VoiceCenter", () => ({
   ),
 }));
 
+vi.mock("@/lib/aionGateway", () => ({
+  isCoreAvailable: vi.fn(async () => false),
+  getSource: vi.fn(() => "local" as const),
+  aionChat: vi.fn(async (input: string) => ({
+    text: "Resposta local.",
+    voiceReply: "Resposta local.",
+    intent: "question",
+    actionsExecuted: [],
+    nextSteps: [],
+    confidence: 0.8,
+    providerUsed: "local",
+    route: "local",
+    timeMs: 10,
+  })),
+}));
+
 const mockSpeak = vi.fn();
 vi.mock("@/lib/aionVoice", () => ({
   speak: (text: string, options?: any) => mockSpeak(text, options),

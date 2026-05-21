@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest } from "next/server";
 import { runAgent } from "@/lib/aion/agent";
+import { callCoreChat, checkCoreHealth } from "@/lib/aion/coreProxy";
 import type { AionRequest } from "@/lib/aion/types";
 
 export async function POST(req: NextRequest) {
@@ -34,15 +35,59 @@ export async function POST(req: NextRequest) {
         sendEvent("status", { status: "classifying" });
         firstStatusMs = Date.now() - requestStart;
 
-        // 2. Emit Building Context status after a minor pause
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        // 2. Try AION Core first (server-side, always has API key)
         sendEvent("status", { status: "building_context" });
+        const coreResponse = await callCoreChat(body.message);
 
-        // 3. Emit Thinking status
+        if (coreResponse && coreResponse.status === "success" && coreResponse.ui_reply) {
+          const replyText = coreResponse.ui_reply || "";
+          firstTokenMs = Date.now() - requestStart;
+
+          const words = replyText.split(" ");
+          for (let i = 0; i < words.length; i++) {
+            const space = i === 0 ? "" : " ";
+            const token = space + words[i];
+            sendEvent("token", { token });
+            await new Promise((resolve) =>
+              setTimeout(resolve, Math.max(5, 30 - words.length))
+            );
+          }
+
+          const totalMs = Date.now() - requestStart;
+          sendEvent("final", {
+            reply: replyText,
+            voiceReply: replyText,
+            action: coreResponse.action_executed || "none",
+            record: null,
+            confidence: coreResponse.data?.confidence ?? 0.5,
+            fallbackUsed: false,
+            debug: {
+              route: "api",
+              provider: "aion-core",
+              providerUsed: "aion-core",
+              fallbackUsed: false,
+              intent: "question",
+              timeMs: totalMs,
+              latencyMetrics: {
+                totalMs,
+                firstStatusMs,
+                firstTokenMs,
+                streamTotalMs: totalMs,
+                streamingUsed: true,
+                providerUsed: "aion-core",
+                fallbackUsed: false,
+                intent: "question",
+              },
+            },
+          });
+          controller.close();
+          return;
+        }
+
+        // 3. Core unavailable — emit thinking status and fall back to local
         await new Promise((resolve) => setTimeout(resolve, 50));
         sendEvent("status", { status: "thinking" });
 
-        // 4. Execute standard runAgent pipeline
         const result = await runAgent({
           message: body.message,
           recentRecords: body.recentRecords,
@@ -53,7 +98,6 @@ export async function POST(req: NextRequest) {
           clientContext: body.clientContext,
         });
 
-        // 5. Stream tokens
         const replyText = result.reply || "";
         const words = replyText.split(" ");
         firstTokenMs = Date.now() - requestStart;
@@ -62,13 +106,11 @@ export async function POST(req: NextRequest) {
           const space = i === 0 ? "" : " ";
           const token = space + words[i];
           sendEvent("token", { token });
-          // Emulate real typewriter pacing
           await new Promise((resolve) =>
             setTimeout(resolve, Math.max(5, 30 - words.length))
           );
         }
 
-        // Add stream metrics
         const totalMs = Date.now() - requestStart;
         const baseLatency = (result.debug as any)?.latencyMetrics || {
           totalMs,
@@ -78,9 +120,9 @@ export async function POST(req: NextRequest) {
           semanticSearchMs: 0,
           llmMs: 0,
           storageMs: 0,
-          providerUsed: "none",
-          fallbackUsed: false,
-          intent: "unknown",
+          providerUsed: result.debug?.providerUsed || "local-fallback",
+          fallbackUsed: true,
+          intent: "question",
         };
 
         const updatedLatencyMetrics = {
@@ -99,7 +141,6 @@ export async function POST(req: NextRequest) {
           },
         };
 
-        // 6. Emit Final response
         sendEvent("final", finalResult);
         controller.close();
       } catch (err: any) {

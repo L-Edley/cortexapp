@@ -30,6 +30,7 @@ export interface VoiceCenterProps {
   followUp?: string | null;
   tips?: string[];
   sources?: Array<{ title: string; url: string }>;
+  coreSource?: "core" | "local";
 }
 
 export default function VoiceCenter({
@@ -40,6 +41,7 @@ export default function VoiceCenter({
   followUp,
   tips = [],
   sources = [],
+  coreSource,
 }: VoiceCenterProps) {
   const [localInput, setLocalInput] = useState("");
   const [globalState, setGlobalState] = useState<
@@ -141,6 +143,14 @@ export default function VoiceCenter({
           <span className="font-mono text-xs text-slate-400 uppercase tracking-widest">
             AION COCKPIT v2.5
           </span>
+          {coreSource && (
+            <span className="flex items-center space-x-1 ml-3" title={coreSource === "core" ? "AION Core conectado" : "Modo local"}>
+              <span className={`inline-flex rounded-full h-1.5 w-1.5 ${coreSource === "core" ? "bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)]" : "bg-amber-500 shadow-[0_0_4px_rgba(245,158,11,0.6)]"}`} />
+              <span className="text-[9px] font-mono text-slate-600 uppercase tracking-wider hidden sm:inline">
+                {coreSource === "core" ? "CORE" : "LOCAL"}
+              </span>
+            </span>
+          )}
         </div>
 
         <div className={`px-3 py-1 rounded-full border text-[10px] font-mono tracking-widest ${statusColor} transition-all duration-300`}>
