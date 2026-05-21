@@ -14,14 +14,29 @@ logger = logging.getLogger("aion.memory.sqlite_store")
 # Dicionário global de locks por inquilino.
 # Garante o requisito crítico: "Nunca abrir duas conexões simultâneas do mesmo tenant".
 _tenant_locks: Dict[str, asyncio.Lock] = {}
-_lock_registry_lock = asyncio.Lock()
+_lock_registry_lock: Optional[asyncio.Lock] = None
+
+def get_registry_lock() -> asyncio.Lock:
+    global _lock_registry_lock
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.Lock()
+    if _lock_registry_lock is None or _lock_registry_lock._loop != loop:
+        _lock_registry_lock = asyncio.Lock()
+    return _lock_registry_lock
 
 async def get_tenant_lock(app_id: str) -> asyncio.Lock:
     """
     Recupera ou registra de forma thread-safe um asyncio.Lock associado ao app_id.
     """
-    async with _lock_registry_lock:
-        if app_id not in _tenant_locks:
+    registry_lock = get_registry_lock()
+    async with registry_lock:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.Lock()
+        if app_id not in _tenant_locks or _tenant_locks[app_id]._loop != loop:
             _tenant_locks[app_id] = asyncio.Lock()
         return _tenant_locks[app_id]
 
@@ -155,6 +170,79 @@ async def provision_tenant(app_id: str) -> None:
                 finished_at TEXT
             )
         """)
+        # 8. Tabela: sync_queue
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS sync_queue (
+                id TEXT PRIMARY KEY,
+                app_id TEXT NOT NULL,
+                record_type TEXT NOT NULL,
+                record_id TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                priority INTEGER NOT NULL DEFAULT 5,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                synced_at TEXT
+            )
+        """)
+        
+        # Índices para fila
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_sync_queue_app_status ON sync_queue (app_id, status)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_sync_queue_created_at ON sync_queue (created_at)")
+
+        # 9. Migração segura para study_reports
+        try:
+            await conn.execute("ALTER TABLE study_reports ADD COLUMN sync_status TEXT DEFAULT 'pending'")
+        except Exception as e:
+            # Ignora se a coluna já existir (OperationalError)
+            pass
+
+        # 10. Tabela: desktop_study_sessions
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS desktop_study_sessions (
+                id TEXT PRIMARY KEY,
+                app_id TEXT NOT NULL,
+                topics TEXT NOT NULL,
+                status TEXT NOT NULL,
+                duration_minutes INTEGER,
+                max_sources INTEGER,
+                progress REAL DEFAULT 0,
+                current_topic TEXT,
+                sources_read INTEGER DEFAULT 0,
+                knowledge_saved INTEGER DEFAULT 0,
+                warnings TEXT,
+                started_at TEXT,
+                finished_at TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        """)
+
+        # 11. Tabela: desktop_study_reports
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS desktop_study_reports (
+                id TEXT PRIMARY KEY,
+                app_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                topics TEXT NOT NULL,
+                sources_read INTEGER DEFAULT 0,
+                teacher_calls INTEGER DEFAULT 0,
+                knowledge_saved INTEGER DEFAULT 0,
+                conclusions TEXT,
+                confidence REAL,
+                pending_sync_count INTEGER DEFAULT 0,
+                warnings TEXT,
+                duration_seconds REAL,
+                created_at TEXT
+            )
+        """)
+
+        # Índices extras para busca de estudo desktop
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_desktop_study_sessions_app ON desktop_study_sessions (app_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_desktop_study_reports_app ON desktop_study_reports (app_id)")
+
         await conn.commit()
         logger.info(f"Tenant database provisioned successfully: '{app_id}'")
 
