@@ -20,4 +20,7 @@ cortex-legacy/
 # arquivo estranho criado no Windows
 nul
 
+# cloudflared binary (52MB, must be installed manually)
+scripts/cloudflared.exe
+
 .vercel
