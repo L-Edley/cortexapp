@@ -209,6 +209,28 @@ async def study_topic(app_id: str, topic: str, depth: str = "normal") -> StudyRe
             tags=["consolidated", "local"],
         )
 
+    # Integração de Professores (Teacher Adapters)
+    needs_teacher = False
+    if depth == "deep":
+        needs_teacher = True
+    elif depth == "normal":
+        if local_confidence < 0.80:
+            needs_teacher = True
+    elif depth == "light":
+        needs_teacher = False
+
+    if needs_teacher:
+        try:
+            from aion.study.teacher_adapters import ask_teacher, save_teacher_answer
+            teacher_answer = await ask_teacher(provider="auto", question=topic, context={"local_confidence": local_confidence})
+            if teacher_answer and teacher_answer.should_save and teacher_answer.confidence > 0.0:
+                k_id = await save_teacher_answer(app_id, teacher_answer, tags=["study", "teacher"])
+                if k_id:
+                    sources.append(f"teacher_{teacher_answer.provider}")
+                    rag_context += f"\n\nContexto adicional do Professor ({teacher_answer.provider}):\n{teacher_answer.answer}"
+        except Exception as te:
+            logger.warning("Teacher integration failed for topic '%s': %s", topic, te)
+
     # 3. Web search
     web_results = []
     try:
@@ -371,6 +393,23 @@ async def save_study_result(app_id: str, result: StudyResult) -> None:
     except Exception as e:
         logger.warning("Obsidian write falhou para estudo: %s", e)
 
+    # 4. Sync Queue
+    try:
+        from aion.sync.sync_queue import enqueue_sync
+        await enqueue_sync(
+            app_id=app_id,
+            record_type="knowledge",
+            record_id=k_id,
+            payload={
+                "content": content,
+                "tags": tags,
+                "confidence": result.confidence,
+                "expires_at": result.expires_at,
+            }
+        )
+    except Exception as e:
+        logger.warning("Falha ao enfileirar sync do knowledge de estudo: %s", e)
+
 
 # ---------------------------------------------------------------------------
 # Persistência de relatório
@@ -406,6 +445,18 @@ async def _save_study_report(app_id: str, report: StudyReport) -> None:
             ),
         )
         await conn.commit()
+
+    # 2. Sync Queue
+    try:
+        from aion.sync.sync_queue import enqueue_sync
+        await enqueue_sync(
+            app_id=app_id,
+            record_type="study_report",
+            record_id=report.id,
+            payload=report.model_dump()
+        )
+    except Exception as e:
+        logger.warning("Falha ao enfileirar sync do study_report: %s", e)
 
 
 async def get_last_study_report(app_id: str) -> Optional[StudyReport]:

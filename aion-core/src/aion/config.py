@@ -108,6 +108,12 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_SERVICE_KEY: str = ""
 
+    # Teacher Adapters (P10.6)
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.2:3b"
+    TEACHER_MAX_CALLS_PER_SESSION: int = 5
+    TEACHER_ENABLE_OPENCODE_IMPORT: bool = True
+
     model_config = SettingsConfigDict(
         env_file=_env_path,
         env_file_encoding="utf-8",
