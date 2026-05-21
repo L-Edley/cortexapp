@@ -595,3 +595,94 @@ async def get_proactive(
         "has_message": True,
         "message": msg.model_dump()
     }
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/study
+# ---------------------------------------------------------------------------
+
+class StudyRequest(BaseModel):
+    topics: Optional[List[str]] = Field(default=None, description="Tópicos para estudo manual")
+    mode: str = Field(default="manual", description="Modo: manual ou auto")
+    max_topics: int = Field(default=5, ge=1, le=20, description="Máximo de tópicos")
+    depth: str = Field(default="normal", description="Profundidade: shallow, normal, deep")
+
+STUDY_JOBS: Dict[str, Dict[str, Any]] = {}
+
+@app.post("/v1/tenant/{app_id}/study", status_code=202)
+async def trigger_study(
+    request: Request,
+    body: StudyRequest,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    job_id = f"study_{uuid.uuid4()}"
+    STUDY_JOBS[job_id] = {"status": "running", "report": None, "error": None, "app_id": tenant_id}
+
+    async def _run_study(j_id: str, t_id: str, topics, mode, max_t, depth):
+        try:
+            from aion.study.study_mode import run_study_mode
+            report = await run_study_mode(t_id, topics=topics, mode=mode, max_topics=max_t, depth=depth)
+            STUDY_JOBS[j_id]["status"] = "completed"
+            STUDY_JOBS[j_id]["report"] = report.model_dump()
+        except Exception as e:
+            STUDY_JOBS[j_id]["status"] = "failed"
+            STUDY_JOBS[j_id]["error"] = str(e)
+            logger.error("Study job %s failed: %s", j_id, e)
+
+    asyncio.create_task(_run_study(job_id, tenant_id, body.topics, body.mode, body.max_topics, body.depth))
+
+    return {
+        "status": "started",
+        "app_id": tenant_id,
+        "job_id": job_id,
+        "message": f"Study mode triggered ({body.mode}). Check status at /v1/tenant/{tenant_id}/study/{job_id}"
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/tenant/{app_id}/study/last
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/tenant/{app_id}/study/last")
+async def get_last_study(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    from aion.study.study_mode import get_last_study_report
+    report = await get_last_study_report(tenant_id)
+    if not report:
+        return {"status": "not_found", "app_id": tenant_id}
+    return report.model_dump()
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/tenant/{app_id}/study/{job_id}
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/tenant/{app_id}/study/{job_id}")
+async def get_study_status(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+    job_id: str = Path(..., description="ID do job de estudo"),
+):
+    job = STUDY_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Study job not found")
+
+    # Tenant isolation
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    if job.get("app_id") and job["app_id"] != tenant_id:
+        raise HTTPException(status_code=404, detail="Study job not found")
+
+    result: Dict[str, Any] = {
+        "job_id": job_id,
+        "status": job["status"],
+    }
+    if job["report"]:
+        result["report"] = job["report"]
+    if job["error"]:
+        result["error"] = job["error"]
+    return result
+

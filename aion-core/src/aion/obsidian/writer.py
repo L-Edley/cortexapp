@@ -208,3 +208,42 @@ async def write_action_log(app_id: str, action: Dict[str, Any], result: Dict[str
     await _append_file(rel_path, entry)
     logger.info("Action log appended to %s", rel_path)
     return rel_path
+
+
+async def write_study_report(app_id: str, report) -> Optional[str]:
+    """Grava um relatório de estudo no Obsidian vault."""
+    vault = _get_vault_path()
+    if not vault:
+        logger.warning("Obsidian vault path not configured — skipping study report write")
+        return None
+    dt = _now()
+    month = _month_path(dt)
+    fname = _file_timestamp(dt)
+    rel_dir = _resolve_safe_path(vault, app_id, "study", month)
+    rel_path = os.path.join(rel_dir, f"{fname}.md")
+    study_id = _id_from_dt("study", dt)
+    safe_id = _sanitize_app_id(app_id)
+    front = _build_frontmatter(
+        study_id, "study_report", safe_id, dt.isoformat(),
+        extra={
+            "mode": report.mode,
+            "topics_count": len(report.topics_studied),
+            "knowledge_saved": report.knowledge_saved,
+        },
+    )
+    body_parts = [f"\n\n# Relatório de Estudo ({report.mode})\n"]
+    body_parts.append(f"\n{report.summary}\n")
+    if report.topics_studied:
+        body_parts.append("\n## Tópicos Estudados\n")
+        for t in report.topics_studied:
+            body_parts.append(f"- {_sanitize_content(t)}")
+    if report.warnings:
+        body_parts.append("\n\n## Avisos\n")
+        for w in report.warnings:
+            body_parts.append(f"- {_sanitize_content(w)}")
+    body_parts.append(f"\n\n---\nDuração: {report.duration_seconds:.1f}s | Salvos: {report.knowledge_saved} | Pulados: {report.skipped}\n")
+    body = "\n".join(body_parts)
+    await _write_file(rel_path, front + body)
+    logger.info("Study report written to %s", rel_path)
+    return rel_path
+

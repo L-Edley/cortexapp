@@ -125,6 +125,36 @@ async def provision_tenant(app_id: str) -> None:
                 created_at TEXT NOT NULL
             )
         """)
+        
+        # 6. Tabela: study_reports
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS study_reports (
+                id TEXT PRIMARY KEY,
+                app_id TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                topics TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                knowledge_saved INTEGER NOT NULL DEFAULT 0,
+                skipped INTEGER NOT NULL DEFAULT 0,
+                provider_used TEXT,
+                duration_seconds REAL NOT NULL DEFAULT 0,
+                warnings TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        
+        # 7. Tabela: study_jobs
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS study_jobs (
+                id TEXT PRIMARY KEY,
+                app_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                report_id TEXT,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                finished_at TEXT
+            )
+        """)
         await conn.commit()
         logger.info(f"Tenant database provisioned successfully: '{app_id}'")
 
