@@ -14,53 +14,191 @@ from aion.memory import sqlite_store
 
 SUPABASE_SCHEMA_SQL = """
 -- Executar no SQL Editor do Supabase para provisionar as tabelas do AION
+-- ============================================================================
+-- Core tables + P10.4B (study_reports, desktop_study_reports, teacher_lessons,
+-- dev_lessons, sync_log)
 
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- ── Core ────────────────────────────────────────────────────────────
+
 CREATE TABLE IF NOT EXISTS public.aion_memories (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id          TEXT PRIMARY KEY,
   app_id      TEXT NOT NULL,
   content     TEXT NOT NULL,
   type        TEXT NOT NULL,
   metadata    JSONB DEFAULT '{}'::jsonb,
-  confidence  FLOAT NOT NULL DEFAULT 1.0,
+  confidence  DOUBLE PRECISION DEFAULT 1.0,
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS public.aion_knowledge (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id          TEXT PRIMARY KEY,
   app_id      TEXT NOT NULL,
   content     TEXT NOT NULL,
   tags        JSONB DEFAULT '[]'::jsonb,
-  confidence  FLOAT NOT NULL DEFAULT 1.0,
+  confidence  DOUBLE PRECISION DEFAULT 1.0,
   expires_at  TIMESTAMPTZ,
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS public.aion_decisions (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id          TEXT PRIMARY KEY,
   app_id      TEXT NOT NULL,
   content     TEXT NOT NULL,
   reasoning   TEXT NOT NULL,
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
--- RLS
+-- ── P10.4B: Study Reports ───────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS public.study_reports (
+  id                TEXT PRIMARY KEY,
+  app_id            TEXT NOT NULL,
+  mode              TEXT NOT NULL DEFAULT '',
+  topics            JSONB DEFAULT '[]'::jsonb,
+  summary           TEXT NOT NULL DEFAULT '',
+  conclusions       JSONB DEFAULT '[]'::jsonb,
+  knowledge_saved   INTEGER DEFAULT 0,
+  warnings          JSONB DEFAULT '[]'::jsonb,
+  confidence        DOUBLE PRECISION DEFAULT 0.0,
+  duration_seconds  DOUBLE PRECISION DEFAULT 0.0,
+  created_at        TIMESTAMPTZ DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.desktop_study_reports (
+  id                  TEXT PRIMARY KEY,
+  app_id              TEXT NOT NULL,
+  session_id          TEXT NOT NULL DEFAULT '',
+  topics              JSONB DEFAULT '[]'::jsonb,
+  sources_read        INTEGER DEFAULT 0,
+  teacher_calls       INTEGER DEFAULT 0,
+  knowledge_saved     INTEGER DEFAULT 0,
+  conclusions         JSONB DEFAULT '[]'::jsonb,
+  confidence          DOUBLE PRECISION DEFAULT 0.0,
+  pending_sync_count  INTEGER DEFAULT 0,
+  warnings            JSONB DEFAULT '[]'::jsonb,
+  duration_seconds    DOUBLE PRECISION DEFAULT 0.0,
+  created_at          TIMESTAMPTZ DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ── P10.4B: Teacher Lessons ─────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS public.teacher_lessons (
+  id          TEXT PRIMARY KEY,
+  app_id      TEXT NOT NULL,
+  provider    TEXT NOT NULL DEFAULT '',
+  question    TEXT NOT NULL DEFAULT '',
+  summary     TEXT NOT NULL DEFAULT '',
+  answer      TEXT NOT NULL DEFAULT '',
+  sources     JSONB DEFAULT '[]'::jsonb,
+  confidence  DOUBLE PRECISION DEFAULT 0.0,
+  tags        TEXT[] DEFAULT '{}',
+  should_save BOOLEAN DEFAULT TRUE,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ── P10.4B: Dev Lessons ─────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS public.dev_lessons (
+  id          TEXT PRIMARY KEY,
+  app_id      TEXT NOT NULL,
+  title       TEXT NOT NULL DEFAULT '',
+  summary     TEXT NOT NULL DEFAULT '',
+  content     TEXT NOT NULL DEFAULT '',
+  tags        TEXT[] DEFAULT '{}',
+  confidence  DOUBLE PRECISION DEFAULT 0.0,
+  source      TEXT NOT NULL DEFAULT 'dev_mode',
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ── P10.4B: Sync Log ────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS public.sync_log (
+  id          TEXT PRIMARY KEY,
+  app_id      TEXT NOT NULL,
+  record_type TEXT NOT NULL DEFAULT '',
+  record_id   TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'pending',
+  attempts    INTEGER DEFAULT 0,
+  last_error  TEXT DEFAULT '',
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  synced_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ====================================================================
+-- ROW LEVEL SECURITY
+-- ====================================================================
+
 ALTER TABLE public.aion_memories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.aion_knowledge ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.aion_decisions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.study_reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.desktop_study_reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.teacher_lessons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.dev_lessons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sync_log ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY tenant_isolation_memories ON public.aion_memories USING (app_id = current_setting('request.jwt.claims', true)::json->>'app_id');
-CREATE POLICY tenant_isolation_knowledge ON public.aion_knowledge USING (app_id = current_setting('request.jwt.claims', true)::json->>'app_id');
-CREATE POLICY tenant_isolation_decisions ON public.aion_decisions USING (app_id = current_setting('request.jwt.claims', true)::json->>'app_id');
+-- Política base: app/tenant enxerga apenas suas próprias linhas via app_id.
+-- A cláusula USING filtra automaticamente SELECT/UPDATE/DELETE.
+-- Para INSERT, a policy WITH CHECK garante que o app_id da linha inserida
+-- corresponde ao app_id do token JWT.
 
--- Função para busca semântica
+CREATE POLICY tenant_isolation_memories ON public.aion_memories
+  USING (app_id = current_setting('request.jwt.claims', true)::json->>'app_id')
+  WITH CHECK (app_id = current_setting('request.jwt.claims', true)::json->>'app_id');
+
+CREATE POLICY tenant_isolation_knowledge ON public.aion_knowledge
+  USING (app_id = current_setting('request.jwt.claims', true)::json->>'app_id')
+  WITH CHECK (app_id = current_setting('request.jwt.claims', true)::json->>'app_id');
+
+CREATE POLICY tenant_isolation_decisions ON public.aion_decisions
+  USING (app_id = current_setting('request.jwt.claims', true)::json->>'app_id')
+  WITH CHECK (app_id = current_setting('request.jwt.claims', true)::json->>'app_id');
+
+CREATE POLICY tenant_isolation_study_reports ON public.study_reports
+  USING (app_id = current_setting('request.jwt.claims', true)::json->>'app_id')
+  WITH CHECK (app_id = current_setting('request.jwt.claims', true)::json->>'app_id');
+
+CREATE POLICY tenant_isolation_desktop_study_reports ON public.desktop_study_reports
+  USING (app_id = current_setting('request.jwt.claims', true)::json->>'app_id')
+  WITH CHECK (app_id = current_setting('request.jwt.claims', true)::json->>'app_id');
+
+CREATE POLICY tenant_isolation_teacher_lessons ON public.teacher_lessons
+  USING (app_id = current_setting('request.jwt.claims', true)::json->>'app_id')
+  WITH CHECK (app_id = current_setting('request.jwt.claims', true)::json->>'app_id');
+
+CREATE POLICY tenant_isolation_dev_lessons ON public.dev_lessons
+  USING (app_id = current_setting('request.jwt.claims', true)::json->>'app_id')
+  WITH CHECK (app_id = current_setting('request.jwt.claims', true)::json->>'app_id');
+
+CREATE POLICY tenant_isolation_sync_log ON public.sync_log
+  USING (app_id = current_setting('request.jwt.claims', true)::json->>'app_id')
+  WITH CHECK (app_id = current_setting('request.jwt.claims', true)::json->>'app_id');
+
+-- Nota: service_role bypassa RLS automaticamente.
+-- Para usar as policies acima via cliente anônimo/authenticated, o client
+-- precisa setar o claim JWT 'app_id'. Exemplo de chamada do cliente:
+--   const { data } = await supabase
+--     .from('study_reports')
+--     .select('*')
+--     .eq('app_id', 'cortex');
+-- A policy filtra automaticamente pelo app_id do JWT.
+
+-- ====================================================================
+-- Função para busca semântica (embedding vector preview)
+-- ====================================================================
+
 CREATE OR REPLACE FUNCTION public.match_aion_memories(
   query_embedding vector(384),
   match_count int,
   filter_app_id text
 ) RETURNS TABLE (
-  id uuid,
+  id text,
   content text,
   similarity float
 )
