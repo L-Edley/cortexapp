@@ -2,7 +2,7 @@ import os
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, Request, Query, Path
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -98,18 +98,22 @@ class ChatRequest(BaseModel):
     context: Optional[ChatContext] = Field(default_factory=ChatContext, description="Metadados de contexto")
 
 
-class ChatResponseData(BaseModel):
-    used_cache: bool = Field(default=False, description="Indica se a resposta veio do cache semântico")
-    confidence: float = Field(default=1.0, description="Nível de confiança da classificação de intenção (0.0 a 1.0)")
-
+from aion.persona.response_formatter import Action, DebugInfo
 
 class ChatResponse(BaseModel):
     status: str = Field(default="success", description="Status da transação")
     tenant_id: str = Field(..., description="ID do tenant associado à transação")
-    reasoning_log: str = Field(..., description="Logs parciais de raciocínio da IA (Chain of Thought)")
-    action_executed: Optional[str] = Field(default=None, description="Ação ou ferramenta engatilhada")
     ui_reply: str = Field(..., description="Resposta formatada para interface de usuário final")
-    data: ChatResponseData = Field(..., description="Métricas adicionais da operação")
+    voice_reply: str = Field(..., description="Versão curta formatada para TTS")
+    should_speak: bool = Field(default=True, description="Indicador se o áudio proativo deve ser engatilhado")
+    available_actions: List[Action] = Field(default_factory=list, description="Ações ativas sugeridas para a UI")
+    follow_up: Optional[str] = Field(default=None, description="Pergunta natural de acompanhamento")
+    data: Dict[str, Any] = Field(..., description="Métricas adicionais e dados estruturados da operação")
+    debug: Optional[DebugInfo] = Field(default=None, description="Informações de telemetria apenas ativas no nível DEBUG")
+    
+    # Legacy fields
+    reasoning_log: str = Field(default="", description="Logs parciais de raciocínio")
+    action_executed: Optional[str] = Field(default=None, description="Ação ou ferramenta engatilhada")
 
 
 # ---------------------------------------------------------------------------
@@ -128,16 +132,21 @@ async def chat(request: Request, body: ChatRequest):
         context=body.context.model_dump() if body.context else {},
     )
 
+    from aion.persona.proactive_engine import reset_cooldown
+    reset_cooldown(tenant_id, body.user_id)
+
     return ChatResponse(
         status=result.status,
         tenant_id=result.tenant_id,
-        reasoning_log=result.reasoning_log,
-        action_executed=result.action_executed,
         ui_reply=result.ui_reply,
-        data=ChatResponseData(
-            used_cache=result.response_source == "cache",
-            confidence=result.confidence,
-        )
+        voice_reply=result.voice_reply,
+        should_speak=result.should_speak,
+        available_actions=result.available_actions,
+        follow_up=result.follow_up,
+        data=result.data,
+        debug=result.debug,
+        reasoning_log=result.reasoning_log,
+        action_executed=result.action_executed
     )
 
 
@@ -466,3 +475,123 @@ async def get_briefing(
 
     await morning_briefing.mark_briefing_shown(app_id)
     return briefing.model_dump()
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/rebuild
+# ---------------------------------------------------------------------------
+
+import uuid
+
+class RebuildRequest(BaseModel):
+    source: str = Field(default="auto", description="Fonte do rebuild: auto, supabase ou obsidian")
+
+REBUILD_JOBS = {}
+
+@app.post("/v1/tenant/{app_id}/rebuild", status_code=202)
+async def trigger_rebuild(
+    request: Request,
+    body: RebuildRequest,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    job_id = str(uuid.uuid4())
+    REBUILD_JOBS[job_id] = {"status": "running", "report": None, "error": None}
+    
+    async def _run_rebuild(j_id: str, t_id: str, src: str):
+        try:
+            from aion.obsidian.rebuilder import rebuild_from_vault
+            report = await rebuild_from_vault(t_id, source=src)
+            REBUILD_JOBS[j_id]["status"] = "completed"
+            REBUILD_JOBS[j_id]["report"] = report.model_dump()
+        except Exception as e:
+            REBUILD_JOBS[j_id]["status"] = "failed"
+            REBUILD_JOBS[j_id]["error"] = str(e)
+            logger.error("Rebuild job %s failed: %s", j_id, e)
+            
+    asyncio.create_task(_run_rebuild(job_id, tenant_id, body.source))
+    
+    return {
+        "status": "accepted",
+        "app_id": tenant_id,
+        "job_id": job_id,
+        "message": f"Rebuild triggered from source '{body.source}'. Check status at /v1/tenant/{tenant_id}/rebuild/{job_id}"
+    }
+
+# ---------------------------------------------------------------------------
+# GET /v1/tenant/{app_id}/rebuild/{job_id}
+# ---------------------------------------------------------------------------
+
+from fastapi import HTTPException
+
+@app.get("/v1/tenant/{app_id}/rebuild/{job_id}")
+async def get_rebuild_status(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+    job_id: str = Path(..., description="ID do job de rebuild")
+):
+    job = REBUILD_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    return {
+        "job_id": job_id,
+        "status": job["status"],
+        "error": job["error"]
+    }
+
+# ---------------------------------------------------------------------------
+# POST /v1/tenant/{app_id}/speak
+# ---------------------------------------------------------------------------
+
+from fastapi.responses import StreamingResponse
+import io
+
+class SpeakRequest(BaseModel):
+    text: str = Field(..., description="Texto para sintetizar em voz")
+
+@app.post("/v1/tenant/{app_id}/speak")
+async def speak(
+    request: Request,
+    body: SpeakRequest,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    from aion.voice import tts_engine
+    
+    result = await tts_engine.synthesize(body.text)
+    
+    # Se indisponível, retorna um JSON padrão com metadados
+    if not result.available or not result.audio_bytes:
+        return result.model_dump()
+        
+    # Retorna o áudio como stream MPEG
+    return StreamingResponse(
+        io.BytesIO(result.audio_bytes),
+        media_type="audio/mpeg"
+    )
+
+# ---------------------------------------------------------------------------
+# GET /v1/tenant/{app_id}/proactive
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/tenant/{app_id}/proactive")
+async def get_proactive(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+    user_id: str = Query(..., description="ID do usuário")
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    from aion.persona import proactive_engine
+    
+    trigger = await proactive_engine.get_proactive_trigger(tenant_id, user_id)
+    if not trigger:
+        return {"has_message": False}
+        
+    context = {"user_name": "Edley"} # Dummy mock
+    msg = await proactive_engine.generate_proactive_message(trigger, context)
+    
+    proactive_engine.mark_trigger_used(tenant_id, user_id, trigger)
+    
+    return {
+        "has_message": True,
+        "message": msg.model_dump()
+    }

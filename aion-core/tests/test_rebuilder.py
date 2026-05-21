@@ -38,14 +38,14 @@ def obsidian_env(monkeypatch):
     vault = "test_obsidian_vault"
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", vault)
     if os.path.exists(vault):
-        shutil.rmtree(vault)
+        shutil.rmtree(vault, ignore_errors=True)
     if os.path.exists("data"):
-        shutil.rmtree("data")
+        shutil.rmtree("data", ignore_errors=True)
     yield
     if os.path.exists(vault):
-        shutil.rmtree(vault)
+        shutil.rmtree(vault, ignore_errors=True)
     if os.path.exists("data"):
-        shutil.rmtree("data")
+        shutil.rmtree("data", ignore_errors=True)
 
 
 # ── reader tests ──────────────────────────────────────────────

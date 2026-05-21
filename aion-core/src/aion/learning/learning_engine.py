@@ -176,8 +176,9 @@ async def run(
         provider_name = "mock"
 
     from aion.config import settings as aion_settings
+    sys_prompt = context.get("system_prompt", aion_settings.system_prompt)
     messages = [
-        {"role": "system", "content": aion_settings.system_prompt},
+        {"role": "system", "content": sys_prompt},
         {"role": "user", "content": input},
     ]
 

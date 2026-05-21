@@ -13,6 +13,7 @@ logger = logging.getLogger("aion.obsidian.rebuilder")
 
 class RebuildReport(BaseModel):
     tenant: str
+    source: str
     memories_restored: int
     knowledge_restored: int
     decisions_restored: int
@@ -106,14 +107,54 @@ class _SQLiteWriter:
 
 async def rebuild_from_vault(
     app_id: str,
+    source: str = "auto",
     include_chroma: bool = True,
 ) -> RebuildReport:
     start = time.monotonic()
+    
+    from aion.config import settings
 
-    records = read_all(app_id)
-    memories = [r for r in records if r.type == "memory"]
-    knowledge = [r for r in records if r.type == "knowledge"]
-    decisions = [r for r in records if r.type == "decision"]
+    memories = []
+    knowledge = []
+    decisions = []
+    used_source = ""
+    
+    # Tentativa de reconstrução via Supabase (Warm Storage)
+    if source in ("auto", "supabase"):
+        if settings.SUPABASE_ENABLED and settings.SUPABASE_URL and settings.SUPABASE_SERVICE_KEY:
+            try:
+                from aion.memory.supabase_store import SupabaseStore
+                store = SupabaseStore(app_id, settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+                data = await store.pull_all(app_id)
+                for m in data.get("memories", []):
+                    memories.append(VaultRecord(id=m["id"], tenant=m["app_id"], type="memory", content=m["content"], confidence=m.get("confidence", 1.0), created_at=m.get("created_at"), metadata=m.get("metadata"), file_path="supabase"))
+                for k in data.get("knowledge", []):
+                    knowledge.append(VaultRecord(id=k["id"], tenant=k["app_id"], type="knowledge", content=k["content"], confidence=k.get("confidence", 1.0), created_at=k.get("created_at"), tags=k.get("tags"), file_path="supabase"))
+                for d in data.get("decisions", []):
+                    decisions.append(VaultRecord(id=d["id"], tenant=d["app_id"], type="decision", content=d["content"], reasoning=d.get("reasoning"), created_at=d.get("created_at"), file_path="supabase"))
+                used_source = "supabase"
+            except Exception as e:
+                logger.warning("Failed to pull from Supabase for rebuild '%s': %s", app_id, e)
+                if source == "supabase":
+                    raise Exception(f"Supabase rebuild failed: {e}")
+        else:
+            if source == "supabase":
+                raise Exception("Supabase is not configured or disabled.")
+                
+    # Fallback para Obsidian (Cold Storage)
+    if source == "obsidian" or (source == "auto" and not used_source):
+        try:
+            records = read_all(app_id)
+            memories = [r for r in records if r.type == "memory"]
+            knowledge = [r for r in records if r.type == "knowledge"]
+            decisions = [r for r in records if r.type == "decision"]
+            used_source = "obsidian"
+        except Exception as e:
+            logger.warning("Failed to read from Obsidian vault for rebuild '%s': %s", app_id, e)
+            if source == "obsidian":
+                raise Exception(f"Obsidian rebuild failed: {e}")
+            if source == "auto":
+                raise Exception(f"Auto rebuild failed for both Supabase and Obsidian: {e}")
 
     await provision_tenant(app_id)
 
@@ -152,13 +193,14 @@ async def rebuild_from_vault(
     elapsed = time.monotonic() - start
     report = RebuildReport(
         tenant=app_id,
+        source=used_source,
         memories_restored=mem_restored,
         knowledge_restored=know_restored,
         decisions_restored=dec_restored,
         errors_skipped=errors,
         duration_seconds=round(elapsed, 3),
     )
-    logger.info("Rebuild complete for '%s': %s", app_id, report.model_dump())
+    logger.info("Rebuild complete for '%s' using '%s': %s", app_id, used_source, report.model_dump())
     return report
 
 

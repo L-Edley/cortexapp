@@ -7,6 +7,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from contextlib import asynccontextmanager
 import aiosqlite
+from aion.config import settings
 
 logger = logging.getLogger("aion.memory.sqlite_store")
 
@@ -111,6 +112,19 @@ async def provision_tenant(app_id: str) -> None:
                 created_at TEXT NOT NULL
             )
         """)
+        
+        # 5. Tabela: emotional_states
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS emotional_states (
+                id TEXT PRIMARY KEY,
+                app_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                state TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                context_summary TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
         await conn.commit()
         logger.info(f"Tenant database provisioned successfully: '{app_id}'")
 
@@ -155,6 +169,12 @@ async def save_memory(app_id: str, content: str, type: str, metadata: Optional[D
             (mem_id, app_id, content, type, metadata_json, confidence, created_at)
         )
         await conn.commit()
+        
+    if settings.SUPABASE_ENABLED and settings.SUPABASE_URL and settings.SUPABASE_SERVICE_KEY:
+        from aion.memory.supabase_store import SupabaseStore
+        store = SupabaseStore(app_id, settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+        asyncio.create_task(store.sync_memory(mem_id, content, type, metadata, confidence))
+        
     return mem_id
 
 async def get_memories(app_id: str, limit: int = 50) -> List[Dict[str, Any]]:
@@ -214,6 +234,12 @@ async def save_knowledge(app_id: str, content: str, tags: List[str], confidence:
             (k_id, app_id, content, tags_json, confidence, expires_at, created_at)
         )
         await conn.commit()
+        
+    if settings.SUPABASE_ENABLED and settings.SUPABASE_URL and settings.SUPABASE_SERVICE_KEY:
+        from aion.memory.supabase_store import SupabaseStore
+        store = SupabaseStore(app_id, settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+        asyncio.create_task(store.sync_knowledge(k_id, content, tags, confidence, expires_at))
+        
     return k_id
 
 async def search_knowledge(app_id: str, query: str) -> List[Dict[str, Any]]:
@@ -275,6 +301,12 @@ async def save_decision(app_id: str, content: str, reasoning: str) -> str:
             (dec_id, app_id, content, reasoning, created_at)
         )
         await conn.commit()
+        
+    if settings.SUPABASE_ENABLED and settings.SUPABASE_URL and settings.SUPABASE_SERVICE_KEY:
+        from aion.memory.supabase_store import SupabaseStore
+        store = SupabaseStore(app_id, settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+        asyncio.create_task(store.sync_decision(dec_id, content, reasoning))
+        
     return dec_id
 
 async def log_action(app_id: str, action_type: str, input: str, output: str, status: str) -> str:

@@ -103,6 +103,11 @@ class Settings(BaseSettings):
     # Chave da API Tavily para busca web real (opcional)
     TAVILY_API_KEY: str = ""
 
+    # Supabase (Warm Storage)
+    SUPABASE_ENABLED: bool = False
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_KEY: str = ""
+
     model_config = SettingsConfigDict(
         env_file=_env_path,
         env_file_encoding="utf-8",

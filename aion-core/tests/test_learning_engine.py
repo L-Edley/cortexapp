@@ -431,7 +431,7 @@ class TestAgentLearningEngineIntegration:
             return mock_complete
 
         with (
-            patch("aion.agent.reasoner.build_rag_context", new_callable=AsyncMock, return_value=""),
+            patch("aion.agent.agent.build_rag_context", new_callable=AsyncMock, return_value=""),
             patch("aion.learning.learning_engine.build_rag_context", new_callable=AsyncMock, return_value=""),
             patch("aion.learning.learning_engine._check_recent_cache", new_callable=AsyncMock, return_value=None),
             patch("aion.llm.factory.get_llm_provider", side_effect=mock_get_provider),
@@ -440,6 +440,9 @@ class TestAgentLearningEngineIntegration:
             patch("aion.memory.embeddings.embed", return_value=[0.1, 0.2, 0.3]),
             patch("aion.memory.sqlite_store.log_action", new_callable=AsyncMock),
             patch("aion.obsidian.writer.write_memory", new_callable=AsyncMock),
+            patch("aion.agent.agent.get_emotional_context", new_callable=AsyncMock, return_value=type('obj', (object,), {'current_state': 'neutral', 'confidence': 1.0})()),
+            patch("aion.agent.agent.detect_emotional_state", return_value=type('obj', (object,), {'state': 'neutral', 'confidence': 1.0})()),
+            patch("aion.agent.agent.save_emotional_snapshot", new_callable=AsyncMock),
         ):
             response = await agent_run("tenant-x", "user-1", "hello", {})
             assert response.response_source == "provider"
@@ -461,7 +464,7 @@ class TestAgentLearningEngineIntegration:
             return mock_complete
 
         with (
-            patch("aion.agent.reasoner.build_rag_context", new_callable=AsyncMock, return_value=""),
+            patch("aion.agent.agent.build_rag_context", new_callable=AsyncMock, return_value=""),
             patch("aion.learning.learning_engine.build_rag_context", new_callable=AsyncMock, return_value=""),
             patch("aion.learning.learning_engine._check_recent_cache", new_callable=AsyncMock, return_value=None),
             patch("aion.llm.factory.get_llm_provider", side_effect=mock_get_provider),
@@ -470,6 +473,9 @@ class TestAgentLearningEngineIntegration:
             patch("aion.memory.embeddings.embed", return_value=[0.1, 0.2, 0.3]),
             patch("aion.memory.sqlite_store.log_action", new_callable=AsyncMock),
             patch("aion.obsidian.writer.write_memory", new_callable=AsyncMock),
+            patch("aion.agent.agent.get_emotional_context", new_callable=AsyncMock, return_value=type('obj', (object,), {'current_state': 'neutral', 'confidence': 1.0})()),
+            patch("aion.agent.agent.detect_emotional_state", return_value=type('obj', (object,), {'state': 'neutral', 'confidence': 1.0})()),
+            patch("aion.agent.agent.save_emotional_snapshot", new_callable=AsyncMock),
         ):
             response = await agent_run("tenant-x", "user-1", "create a task", {})
             assert response.action_executed == "create_task"
