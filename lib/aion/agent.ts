@@ -10,9 +10,8 @@ import type {
 } from "./types";
 import type { SessionMessage } from "@/lib/sessionMemory";
 import { searchWeb, getMemory } from "./tools";
-import { getOrderedProviders } from "@/lib/ai";
-import type { ProviderEntry } from "@/lib/ai";
 import { aionChat } from "@/lib/aionGateway";
+import { callWithFallback } from "@/lib/aionLLM";
 
 const LEARN_PATTERNS =
   /(decidi|vou|vamos|como|passo|forma|maneira|pesquisar|buscar|saber|descobrir|sempre|nunca|percebi|notei|padrão|comportamento|habito|cortex|aion|projeto|prefiro|gosto|queria|gostaria)/i;
@@ -75,14 +74,8 @@ function repairJsonFromModel(rawText: string): {
 async function callAIWithSearch(
   originalMessage: string,
   searchQuery: string,
-  searchResults: AionSource[],
-  providerEntry?: ProviderEntry
+  searchResults: AionSource[]
 ): Promise<{ reply: string; voiceReply: string } | null> {
-  const entry = providerEntry || getOrderedProviders()[0] || null;
-  if (!entry) return null;
-
-  const { provider } = entry;
-
   const sourcesText = searchResults
     .map((s, i) => `${i + 1}. ${s.title} — ${s.url}`)
     .join("\n");
@@ -106,13 +99,13 @@ Sua resposta DEVE ser APENAS um objeto JSON:
 }`;
 
   try {
-    const text = await provider.generateResponse(
+    const result = await callWithFallback(
       prompt,
       "Você é Aion, assistente pessoal. Responda com JSON puro."
     );
-    if (!text) return null;
+    if (!result.text) return null;
 
-    const { parsed } = repairJsonFromModel(text);
+    const { parsed } = repairJsonFromModel(result.text);
     if (!parsed) return null;
 
     return {

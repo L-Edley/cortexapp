@@ -22,8 +22,9 @@ export interface WorldRadarResult {
 }
 
 export async function runWorldRadar(options?: WorldRadarOptions): Promise<WorldRadarResult[]> {
-  const enabled = getEnabledResearchTopics();
-  const toCheck = options?.forceAll ? enabled : enabled.filter(shouldCheckTopic);
+  const enabled = await getEnabledResearchTopics();
+  const checkResults = options?.forceAll ? enabled.map(() => true) : await Promise.all(enabled.map(shouldCheckTopic));
+  const toCheck = enabled.filter((_, i) => checkResults[i]);
 
   const limit = options?.maxTopics || 3;
   const sliced = toCheck.slice(0, limit);

@@ -24,3 +24,6 @@ nul
 scripts/cloudflared.exe
 
 .vercel
+
+# nested aion-core repo — tracked by its own git
+aion-core/

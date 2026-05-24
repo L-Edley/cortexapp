@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getContextPolicy } from "../aionContextPolicy";
 import {
   getCacheItem,
   setCacheItem,
@@ -15,28 +14,10 @@ import {
   setCachedLatestPatterns,
 } from "../aionPerformance";
 
-describe("Aion Latency Cache & Context Policy", () => {
+describe("Aion Latency Cache", () => {
   beforeEach(() => {
     clearAionPerformanceCache();
     vi.useFakeTimers();
-  });
-
-  it("contextPolicy retorna a configuração correta para cada intenção", () => {
-    const smalltalk = getContextPolicy("smalltalk");
-    expect(smalltalk.loadSemanticSearch).toBe(false);
-    expect(smalltalk.loadProfile).toBe(false);
-    expect(smalltalk.loadDailyInsight).toBe(false);
-
-    const question = getContextPolicy("question");
-    expect(question.loadSemanticSearch).toBe(true);
-    expect(question.loadProfile).toBe(true);
-    expect(question.loadDailyInsight).toBe(false);
-
-    const analysis = getContextPolicy("analysis");
-    expect(analysis.loadSemanticSearch).toBe(true);
-    expect(analysis.loadProfile).toBe(true);
-    expect(analysis.loadDailyInsight).toBe(true);
-    expect(analysis.loadPatterns).toBe(true);
   });
 
   it("cache respeita o TTL e expira conforme o tempo configurado", () => {

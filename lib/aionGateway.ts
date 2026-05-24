@@ -1,4 +1,3 @@
-import { reason } from "@/lib/aionReason";
 import type { AionReasonResponse, ReasonOptions } from "@/lib/aionReason";
 
 let _source: "core" | "local" = "local";
@@ -7,9 +6,28 @@ let _lastCoreCheck = 0;
 const CORE_CHECK_TTL = 30_000;
 
 const CORE_URL = (typeof window !== "undefined"
-  ? ""  // client-side: no direct calls
+  ? ""
   : process.env.NEXT_PUBLIC_AION_CORE_URL || "http://localhost:8000"
 );
+
+function offlineResponse(input: string, timeMs: number): AionReasonResponse {
+  return {
+    text: "O Aion Core está offline. Não foi possível processar sua solicitação. Tente novamente quando o Core estiver disponível.",
+    voiceReply: "Aion Core offline.",
+    intent: "unknown",
+    actionsExecuted: [],
+    nextSteps: [],
+    confidence: 0,
+    providerUsed: "none",
+    route: "fallback",
+    timeMs,
+    record: null,
+    suggestion: null,
+    followUpQuestion: null,
+    tips: null,
+    debug: { source: "offline-gateway" },
+  };
+}
 
 function coreToReasonResponse(reply: string, timeMs: number): AionReasonResponse {
   return {
@@ -59,7 +77,6 @@ export async function aionChat(
 ): Promise<AionReasonResponse> {
   const start = Date.now();
 
-  // Only try Core directly if running server-side
   if (typeof window === "undefined" && await isCoreAvailable()) {
     try {
       const apiKey = process.env.AION_CORE_API_KEY || "";
@@ -91,5 +108,5 @@ export async function aionChat(
     }
   }
 
-  return reason(input, options);
+  return offlineResponse(input, Date.now() - start);
 }

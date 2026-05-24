@@ -1,7 +1,17 @@
 import type { CortexApiResponse, CortexRecord } from "@/lib/types";
 import type { AionBrainItem } from "./brain/types";
-import type { AionContextDebug } from "@/lib/aionContext";
 import type { SessionMessage } from "@/lib/sessionMemory";
+
+export type AionContextDebug = {
+  contextUsed: boolean;
+  recentRecordsUsed: number;
+  brainItemsUsed: number;
+  semanticResultsUsed: number;
+  profileUsed: boolean;
+  dailyInsightUsed: boolean;
+  clientContextUsed?: boolean;
+  serverSemanticDisabled?: boolean;
+};
 
 export type AionAction =
   | "none"

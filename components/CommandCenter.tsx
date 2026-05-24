@@ -27,7 +27,6 @@ import {
   getUnshownAlerts,
   markAlertShown,
 } from "@/lib/aionAlerts";
-import { runAionScheduledJobs } from "@/lib/aionScheduler";
 import { addToSession, getRecentSessionMessages } from "@/lib/sessionMemory";
 import StreamingText from "@/components/voice/StreamingText";
 import MicButton from "@/components/voice/MicButton";
@@ -110,25 +109,6 @@ export default function CommandCenter() {
   };
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    runAionScheduledJobs().catch(() => {});
-
-    if (typeof document === "undefined") return;
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        runAionScheduledJobs().catch(() => {});
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setInterval>;
 
@@ -162,7 +142,7 @@ export default function CommandCenter() {
         await checkAllAlerts().catch(() => {});
         if (cancelled) return;
 
-        const unshown = getUnshownAlerts();
+        const unshown = await getUnshownAlerts();
         const urgentAlert = unshown.find(
           (a) => a.urgency === "high" || a.urgency === "medium",
         );
@@ -191,7 +171,7 @@ export default function CommandCenter() {
             parts.push(
               `[Alerta: ${urgentAlert.title}] ${urgentAlert.description}`,
             );
-            markAlertShown(urgentAlert.id);
+            await markAlertShown(urgentAlert.id);
           }
 
           if (briefing.question) parts.push(briefing.question);
@@ -205,7 +185,7 @@ export default function CommandCenter() {
           setAiResponse(
             `[Alerta: ${urgentAlert.title}] ${urgentAlert.description}`,
           );
-          markAlertShown(urgentAlert.id);
+          await markAlertShown(urgentAlert.id);
         }
       } catch {
         /* briefing e alertas não bloqueiam o app */
