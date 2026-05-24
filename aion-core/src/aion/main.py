@@ -1121,6 +1121,306 @@ async def dev_validate_endpoint(
 
 
 # ---------------------------------------------------------------------------
+# Control Center Endpoints (P10.8B)
+# ---------------------------------------------------------------------------
+
+from aion.control.control_center import (
+    get_control_overview,
+    get_brain_status,
+    get_provider_status,
+    get_sync_overview,
+    get_study_overview,
+    get_dev_overview,
+    get_jobs_overview,
+)
+
+
+@app.get("/v1/tenant/{app_id}/control/overview")
+async def control_overview(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    overview = await get_control_overview(tenant_id)
+    return overview.model_dump()
+
+
+@app.get("/v1/tenant/{app_id}/control/brain")
+async def control_brain(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    status = await get_brain_status(tenant_id)
+    return status.model_dump()
+
+
+@app.get("/v1/tenant/{app_id}/control/providers")
+async def control_providers(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    status = await get_provider_status()
+    return status.model_dump()
+
+
+@app.get("/v1/tenant/{app_id}/control/sync")
+async def control_sync(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    overview = await get_sync_overview(tenant_id)
+    return overview.model_dump()
+
+
+@app.get("/v1/tenant/{app_id}/control/study")
+async def control_study(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    overview = await get_study_overview(tenant_id)
+    return overview.model_dump()
+
+
+@app.get("/v1/tenant/{app_id}/control/dev")
+async def control_dev(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    overview = await get_dev_overview(tenant_id)
+    return overview.model_dump()
+
+
+@app.get("/v1/tenant/{app_id}/control/jobs")
+async def control_jobs(
+    request: Request,
+    app_id: str = Path(..., description="ID do tenant"),
+):
+    tenant_id = getattr(request.state, "tenant_id", app_id)
+    overview = await get_jobs_overview(tenant_id)
+    return overview.model_dump()
+
+
+# ---------------------------------------------------------------------------
+# Workspace API (P11 — Unified Cognitive Workspace)
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/workspace/state")
+async def workspace_state(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "cortex")
+    from aion.workspace.workspace_state import get_workspace_state
+    state = get_workspace_state().get_state()
+    return state.model_dump()
+
+
+@app.get("/v1/workspace/timeline")
+async def workspace_timeline(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+    category: Optional[str] = Query(None),
+):
+    tenant_id = getattr(request.state, "tenant_id", "cortex")
+    from aion.workspace.timeline import get_timeline
+    events = get_timeline().get_events(limit=limit, category=category)
+    return {
+        "events": [e.model_dump() for e in events],
+        "categories": get_timeline().get_categories(),
+    }
+
+
+@app.get("/v1/workspace/strategies")
+async def workspace_strategies(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "cortex")
+    from aion.orchestrator.learning_system import get_learning_system
+    system = get_learning_system()
+    await system.sync_strategies(tenant_id)
+    strategies = system.evaluator.get_all_strategies()
+    return {
+        "strategies": {k: v.model_dump() for k, v in strategies.items()},
+        "most_used_modes": system.evaluator.get_most_used_modes(),
+    }
+
+
+@app.get("/v1/workspace/memory-graph")
+async def workspace_memory_graph(
+    request: Request,
+    limit: int = Query(200, ge=10, le=500),
+):
+    tenant_id = getattr(request.state, "tenant_id", "cortex")
+    from aion.workspace.memory_graph import get_memory_graph
+    graph = await get_memory_graph().build(tenant_id, limit=limit)
+    return graph.model_dump()
+
+
+@app.get("/v1/workspace/providers")
+async def workspace_providers(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "cortex")
+    from aion.workspace.brain_observatory import get_brain_observatory
+    providers = await get_brain_observatory().get_providers(tenant_id)
+    return {"providers": providers}
+
+
+@app.get("/v1/workspace/executions")
+async def workspace_executions(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+):
+    tenant_id = getattr(request.state, "tenant_id", "cortex")
+    from aion.orchestrator.execution_memory import get_execution_memory
+    records = await get_execution_memory().list_recent(tenant_id, limit=limit)
+    return {
+        "executions": [r.model_dump() for r in records],
+        "total": len(records),
+    }
+
+
+@app.get("/v1/workspace/reflections")
+async def workspace_reflections(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+):
+    tenant_id = getattr(request.state, "tenant_id", "cortex")
+    from aion.memory.sqlite_store import search_knowledge
+    results = await search_knowledge(tenant_id, "", limit=limit * 2)
+    reflections = [r for r in results if r.get("source_mode") == "reflection" or "reflection" in (r.get("tags") or [])]
+    return {
+        "reflections": [{
+            "id": r.get("id"),
+            "content": (r.get("content") or "")[:300],
+            "tags": r.get("tags", []),
+            "created_at": r.get("created_at"),
+        } for r in reflections[:limit]],
+        "total": len(reflections[:limit]),
+    }
+
+
+@app.get("/v1/workspace/live-feed")
+async def workspace_live_feed(
+    request: Request,
+    limit: int = Query(50, ge=1, le=100),
+):
+    tenant_id = getattr(request.state, "tenant_id", "cortex")
+    from aion.workspace.live_feed import get_live_feed
+    entries = get_live_feed().get_entries(limit=limit)
+    return {
+        "entries": [e.model_dump() for e in entries],
+    }
+
+
+@app.get("/v1/workspace/dashboard")
+async def workspace_dashboard(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "cortex")
+    from aion.orchestrator.learning_system import get_learning_system
+    system = get_learning_system()
+    dashboard = await system.get_dashboard_data(tenant_id)
+    from aion.workspace.brain_observatory import get_brain_observatory
+    brain = await get_brain_observatory().get_stats(tenant_id)
+    from aion.workspace.timeline import get_timeline
+    timeline = get_timeline().get_recent_summary(limit=10)
+    return {
+        **dashboard,
+        "brain": brain.model_dump(),
+        "recent_timeline": timeline,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Workspace Brain Observatory (P11.6)
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/workspace/brain/stats")
+async def workspace_brain_stats(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "cortex")
+    from aion.workspace.brain_observatory import get_brain_observatory
+    stats = await get_brain_observatory().get_stats(tenant_id)
+    return stats.model_dump()
+
+
+@app.get("/v1/workspace/brain/health")
+async def workspace_brain_health(request: Request):
+    tenant_id = getattr(request.state, "tenant_id", "cortex")
+    from aion.workspace.brain_observatory import get_brain_observatory
+    health = await get_brain_observatory().get_health(tenant_id)
+    return health
+
+
+# ---------------------------------------------------------------------------
+# Runtime API (P12 — Autonomous Cognitive Runtime)
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/runtime/state")
+async def runtime_state(request: Request):
+    from aion.runtime.runtime_manager import get_runtime_manager
+    state = get_runtime_manager().get_state()
+    return state.model_dump()
+
+
+@app.get("/v1/runtime/sessions")
+async def runtime_sessions(
+    request: Request,
+    session_type: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+):
+    from aion.runtime.persistent_sessions import get_session_store
+    sessions = get_session_store().list_all(session_type=session_type, limit=limit)
+    return {
+        "sessions": [s.model_dump() for s in sessions],
+        "active_count": len(get_session_store().list_active(session_type)),
+    }
+
+
+@app.get("/v1/runtime/goals")
+async def runtime_goals(
+    request: Request,
+    active_only: bool = Query(True),
+):
+    from aion.runtime.goal_engine import get_goal_engine
+    goals = get_goal_engine().list_goals(active_only=active_only)
+    return {
+        "goals": [g.model_dump() for g in goals],
+    }
+
+
+@app.get("/v1/runtime/jobs")
+async def runtime_jobs(request: Request):
+    from aion.runtime.runtime_manager import get_runtime_manager
+    mgr = get_runtime_manager()
+    return {
+        "active_jobs": mgr.get_active_jobs(),
+        "telemetry": mgr.get_telemetry(),
+    }
+
+
+@app.get("/v1/runtime/notifications")
+async def runtime_notifications(
+    request: Request,
+    unread_only: bool = Query(False),
+    type_filter: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+):
+    from aion.runtime.notifications import get_notification_store
+    store = get_notification_store()
+    notes = store.list_all(unread_only=unread_only, type_filter=type_filter, limit=limit)
+    return {
+        "notifications": [n.model_dump() for n in notes],
+        "unread_count": store.count_unread(),
+    }
+
+
+@app.get("/v1/runtime/scheduler")
+async def runtime_scheduler(request: Request):
+    from aion.runtime.cognitive_scheduler import get_scheduler
+    tasks = get_scheduler().list_tasks()
+    return {
+        "tasks": [t.model_dump() for t in tasks],
+        "due_count": len(get_scheduler().get_due_tasks()),
+    }
+
+
+# ---------------------------------------------------------------------------
 # POST /v1/tenant/{app_id}/dev/save-lesson (P10.7)
 # ---------------------------------------------------------------------------
 

@@ -31,8 +31,11 @@ def decide_response_source(confidence: float, input: str = "", app_id: str = "")
 
 async def build_rag_context(app_id: str, input: str) -> str:
     from aion.memory import sqlite_store, embeddings, vector_store
+    from aion.memory.memory_taxonomy import infer_query_niche, should_search_niche, classify_memory_niche
 
-    memories = await sqlite_store.get_memories(app_id, limit=5)
+    query_niche = infer_query_niche(app_id, input)
+
+    memories = await sqlite_store.get_memories(app_id, limit=10)
     knowledge = await sqlite_store.search_knowledge(app_id, input)
 
     parts = []
@@ -42,8 +45,13 @@ async def build_rag_context(app_id: str, input: str) -> str:
             mtype = m.get("type", "unknown")
             mcontent = m.get("content", "")
             mconf = m.get("confidence", 0)
+            mmd = m.get("metadata") or {}
+            mem_tax = classify_memory_niche(app_id, mcontent, mmd)
+            if not should_search_niche(query_niche, mem_tax):
+                continue
             lines.append(f"- [{mtype}] (confidence: {mconf}) {mcontent}")
-        parts.append("\n".join(lines))
+        if len(lines) > 1:
+            parts.append("\n".join(lines))
 
     knowledge = [k for k in knowledge if "volatile" not in k.get("tags", [])]
     if knowledge:
@@ -52,12 +60,16 @@ async def build_rag_context(app_id: str, input: str) -> str:
             ktags = ", ".join(k.get("tags", []))
             kcontent = k.get("content", "")
             kconf = k.get("confidence", 0)
+            kniche = classify_memory_niche(app_id, kcontent, {"tags": k.get("tags", [])})
+            if not should_search_niche(query_niche, kniche):
+                continue
             lines.append(f"- (confidence: {kconf}, tags: {ktags}) {kcontent}")
-        parts.append("\n".join(lines))
+        if len(lines) > 1:
+            parts.append("\n".join(lines))
 
     query_emb = embeddings.embed(input)
     if query_emb:
-        semantic = await vector_store.semantic_search(app_id, query_emb, n_results=3)
+        semantic = await vector_store.semantic_search(app_id, query_emb, n_results=5)
         if semantic:
             slines = ["## Semantic Matches"]
             for s in semantic:
@@ -67,14 +79,103 @@ async def build_rag_context(app_id: str, input: str) -> str:
                 stype = s["metadata"].get("type", "unknown")
                 scontent = s.get("content", "")
                 ssim = s.get("similarity", 0)
+                smeta = s.get("metadata", {})
+                sniche_val = smeta.get("niche", "general")
+                sniche_tax = classify_memory_niche(app_id, scontent, smeta)
+                sniche_tax.niche = sniche_val
+                if not should_search_niche(query_niche, sniche_tax):
+                    continue
                 slines.append(f"- [{stype}] (similarity: {ssim:.3f}) {scontent}")
-            parts.append("\n".join(slines))
+            if len(slines) > 1:
+                parts.append("\n".join(slines))
 
     return "\n".join(parts)
 
 
-def build_cache_reply(rag_context: str, input: str) -> str:
-    return f"[Cached from RAG]\n\nWith your context and memory:\n\n{rag_context}"
+def build_cache_answer(
+    input: str,
+    memories: Optional[List[Dict[str, Any]]] = None,
+    knowledge: Optional[List[Dict[str, Any]]] = None,
+    semantic_results: Optional[List[Dict[str, Any]]] = None,
+) -> str:
+    from aion.memory.memory_taxonomy import infer_query_niche, classify_memory_niche
+
+    query_niche = infer_query_niche("", input)
+
+    candidates = []
+
+    if memories:
+        for m in memories:
+            mmd = m.get("metadata") or {}
+            tax = classify_memory_niche("", m.get("content", ""), mmd)
+            if tax.niche == query_niche.niche or tax.niche == "general" or query_niche.niche == "general" or query_niche.confidence < 0.4:
+                candidates.append({
+                    "content": m.get("content", ""),
+                    "confidence": m.get("confidence", 0),
+                    "source": "memory",
+                })
+
+    if knowledge:
+        for k in knowledge:
+            if "volatile" in k.get("tags", []):
+                continue
+            tax = classify_memory_niche("", k.get("content", ""), {"tags": k.get("tags", [])})
+            if tax.niche == query_niche.niche or tax.niche == "general" or query_niche.niche == "general" or query_niche.confidence < 0.4:
+                candidates.append({
+                    "content": k.get("content", ""),
+                    "confidence": k.get("confidence", 0),
+                    "source": "knowledge",
+                })
+
+    if semantic_results:
+        for s in semantic_results:
+            stag = s["metadata"].get("tags", "")
+            if "volatile" in stag:
+                continue
+            sniche = s["metadata"].get("niche", "general")
+            if sniche == query_niche.niche or sniche == "general" or query_niche.niche == "general" or s.get("similarity", 0) >= 0.85:
+                candidates.append({
+                    "content": s.get("content", ""),
+                    "confidence": s.get("similarity", 0),
+                    "source": "semantic",
+                })
+
+    if not candidates:
+        best = None
+        for src_name, src_list in [("memory", memories), ("knowledge", knowledge), ("semantic", semantic_results)]:
+            if src_list:
+                best = {
+                    "content": src_list[0].get("content", "") if isinstance(src_list[0], dict) else "",
+                    "confidence": src_list[0].get("confidence", src_list[0].get("similarity", 0)) if isinstance(src_list[0], dict) else 0,
+                    "source": src_name,
+                }
+                break
+        if best and best.get("content"):
+            candidates = [best]
+
+    if not candidates:
+        return ""
+
+    best_candidate = max(candidates, key=lambda c: c["confidence"])
+    content = best_candidate.get("content", "").strip()
+
+    if not content:
+        return ""
+
+    if best_candidate["confidence"] < 0.4:
+        return ""
+
+    content_lower = content.lower()
+    input_lower = input.lower()
+
+    input_words = set(re.findall(r'\w+', input_lower))
+    content_words = set(re.findall(r'\w+', content_lower))
+    common = input_words & content_words
+
+    if len(input_words) > 2 and len(common) == 0 and best_candidate["confidence"] < 0.6:
+        return ""
+
+    return content
 
 
 def extract_reply(response: str) -> str:

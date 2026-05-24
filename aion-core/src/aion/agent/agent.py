@@ -12,11 +12,15 @@ from aion.persona import (
     save_emotional_snapshot
 )
 from aion.intent.intent_detector import detect_intent
-from aion.agent.reasoner import build_rag_context, compute_rag_confidence, try_parse_tool_calls, build_cache_reply
+from aion.agent.reasoner import build_rag_context, compute_rag_confidence, try_parse_tool_calls, build_cache_answer
 from aion.learning.knowledge_gap import detect_gap, should_call_provider
 from aion.learning.learning_engine import run as learning_run
 from aion.tools.registry import registry
 from aion.memory import sqlite_store
+from aion.cognitive.cognitive_orchestrator import get_orchestrator, OrchestratorResult
+from aion.orchestrator.learning_system import get_learning_system
+from aion.workspace.event_bus import get_event_bus
+from aion.workspace.workspace_state import get_workspace_state
 
 logger = logging.getLogger("aion.agent")
 
@@ -50,16 +54,25 @@ async def run(app_id: str, user_id: str, input: str, context: Optional[Dict[str,
         )
 
 
-    # 3. RAG Context
+    # 3. Fetch memories and knowledge for RAG
+    from aion.memory import sqlite_store, embeddings, vector_store
+    memories = await sqlite_store.get_memories(app_id, limit=10)
+    knowledge = await sqlite_store.search_knowledge(app_id, input)
+    query_emb = embeddings.embed(input)
+    semantic_results = []
+    if query_emb:
+        semantic_results = await vector_store.semantic_search(app_id, query_emb, n_results=5)
+
+    # 4. Build RAG Context string (for LLM system prompt)
     rag_context_text = await build_rag_context(app_id, input)
     confidence = compute_rag_confidence(rag_context_text)
     lines.append(f"[Reasoning] RAG confidence: {confidence:.2f}")
 
-    # 4. Detect Gap
+    # 5. Detect Gap
     gap = detect_gap(app_id, input, confidence)
     lines.append(f"[Reasoning] Gap type: {gap.gap_type.value}")
 
-    # 5. Build System Prompt
+    # 6. Build System Prompt
     persona_state = {"user_emotion": current_emotion}
     if "user_name" in context:
         persona_state["user_name"] = context["user_name"]
@@ -71,13 +84,15 @@ async def run(app_id: str, user_id: str, input: str, context: Optional[Dict[str,
     )
     context["system_prompt"] = system_prompt
 
-    # 6. Check Cache / No LLM
+    # 7. Check Cache / No LLM
     if not should_call_provider(gap):
         lines.append("[Reasoning] Returning cached response from RAG context.")
-        reply = build_cache_reply(rag_context_text, input) if rag_context_text else "Já conheço essa informação."
+        answer = build_cache_answer(input, memories, knowledge, semantic_results)
+        if not answer:
+            answer = "Já conheço essa informação."
         return format_response(
             tenant_id=app_id,
-            raw_response=reply,
+            raw_response=answer,
             intent=intent_res.intent,
             context=context,
             confidence=confidence,
@@ -87,7 +102,66 @@ async def run(app_id: str, user_id: str, input: str, context: Optional[Dict[str,
             emotional_state=current_emotion
         )
 
-    # 7. Exige LLM -> Learning Engine
+    # 8. Cognitive Orchestrator (apenas para intents complexas)
+    cognitive_extra: Dict[str, Any] = {}
+    orchestrator_data: Dict[str, Any] = {}
+    cognitive_extra_set: bool = False
+    try:
+        orch = get_orchestrator()
+        context["intent"] = intent_res.intent
+        context["confidence"] = intent_res.confidence
+        orch_result = await orch.process(app_id, user_id, input, context)
+        if orch_result.activated:
+            lines.append(f"[Reasoning] Cognitive orchestrator activated: {orch_result.summary}")
+            cognitive_extra = orch_result.ui_reply_extra
+            try:
+                bus = get_event_bus()
+                bus.emit("goal_detected", {"goal": input[:100], "intent": intent_res.intent})
+                bus.emit("orchestrator_activated", {"summary": orch_result.summary[:100]})
+            except Exception:
+                pass
+            try:
+                state = get_workspace_state()
+                state.set_active_goal(input[:200])
+                state.set_orchestrator_status("active")
+            except Exception:
+                pass
+            # P10.9B: Execution Memory + Reflection Loop (non-blocking)
+            try:
+                learning = get_learning_system()
+                goal_type = orch_result.plan.analysis.goal_type.value if orch_result.plan else "unknown"
+                modes = [r.mode.value for r in orch_result.recommended_modes] if orch_result.recommended_modes else ["chat"]
+                rec = await learning.record_execution(
+                    app_id=app_id,
+                    goal=input,
+                    goal_type=goal_type,
+                    modes_used=modes,
+                    providers_used=[],
+                    success=True,
+                    duration_seconds=0.0,
+                    confidence_score=context.get("confidence", 0.5),
+                )
+                reflection = await learning.reflect_on_execution(app_id, rec)
+                await learning.sync_strategies(app_id)
+                routing = await learning.get_routing_recommendation(goal_type, modes, app_id)
+                orchestrator_data = {
+                    "execution_summary": {"goal_type": goal_type, "modes": modes, "execution_id": rec.id},
+                    "reflection": reflection.model_dump() if reflection else {},
+                    "strategy_confidence": routing.strategy_confidence,
+                }
+                lines.append(f"[Reasoning] Execution recorded: {rec.id[:12]} | Strategy confidence: {routing.strategy_confidence}")
+                try:
+                    bus.emit("execution_recorded", {"goal_type": goal_type, "execution_id": rec.id})
+                    bus.emit("reflection_generated", {"execution_id": rec.id})
+                    bus.emit("strategy_updated", {"goal_type": goal_type, "confidence": routing.strategy_confidence})
+                except Exception:
+                    pass
+            except Exception as e2:
+                logger.warning(f"Orchestrator learning system error (non-blocking): {e2}")
+    except Exception as e:
+        logger.warning(f"Cognitive orchestrator error (non-blocking): {e}")
+
+    # 9. Exige LLM -> Learning Engine
     lr = await learning_run(app_id, user_id, input, context)
     lines.append(f"[Reasoning] Learning engine: source={lr.source}, gap={lr.gap_type}, learned={lr.learned}")
 
@@ -104,7 +178,7 @@ async def run(app_id: str, user_id: str, input: str, context: Optional[Dict[str,
             else:
                 lines.append(f"[Reasoning] Tool '{tname}' validation failed")
 
-    # 8. Detect Emotional State
+    # 9. Detect Emotional State
     # Pegar as últimas mensagens e atualizar snapshot
     from aion.memory.sqlite_store import tenant_db_connection
     recent_msgs = []
@@ -126,7 +200,7 @@ async def run(app_id: str, user_id: str, input: str, context: Optional[Dict[str,
     await save_emotional_snapshot(app_id, user_id, new_emotion, "")
     lines.append(f"[Reasoning] Updated emotional state: {new_emotion.state}")
 
-    # 9. Format Response
+    # 10. Format Response
     response = format_response(
         tenant_id=app_id,
         raw_response=lr.answer,
@@ -138,10 +212,14 @@ async def run(app_id: str, user_id: str, input: str, context: Optional[Dict[str,
         gap_type=lr.gap_type,
         provider_used=lr.provider_used,
         emotional_state=new_emotion.state,
-        action_executed=executed_tool
+        action_executed=executed_tool,
+        cognitive_data={
+            **cognitive_extra,
+            **orchestrator_data,
+        } if cognitive_extra or orchestrator_data else None,
     )
     
-    # 10. Salva no SQLite + Obsidian async
+    # 11. Salva no SQLite + Obsidian async
     # O Learning Engine já salva a action_log e faz obsidian async_write, 
     # mas o prompt diz "10. Salva no SQLite + Obsidian async". 
     # Já está coberto dentro do flow normal (ou no learning_engine.py e action logger).

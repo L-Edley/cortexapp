@@ -468,7 +468,8 @@ async def save_teacher_answer(
         app_id=app_id,
         content=knowledge_content,
         tags=answer.tags,
-        confidence=answer.confidence
+        confidence=answer.confidence,
+        source_mode="teacher",
     )
     
     # 5. Gera embeddings e salva no ChromaDB (Vector Store)
@@ -484,7 +485,8 @@ async def save_teacher_answer(
                     "provider": answer.provider,
                     "question": answer.question,
                     "type": "teacher_knowledge"
-                }
+                },
+                source_mode="teacher",
             )
     except Exception as e:
         logger.error("Failed to generate embedding for teacher lesson: %s", e)

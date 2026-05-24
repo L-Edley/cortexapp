@@ -374,6 +374,7 @@ async def save_study_result(app_id: str, result: StudyResult) -> None:
             tags,
             confidence=result.confidence,
             expires_at=result.expires_at,
+            source_mode="study",
         )
     except Exception as e:
         logger.error("Falha ao salvar knowledge do estudo: %s", e)
@@ -383,7 +384,8 @@ async def save_study_result(app_id: str, result: StudyResult) -> None:
     try:
         emb = embeddings.embed(content)
         if emb:
-            await vector_store.add_knowledge(app_id, k_id, content, emb, tags)
+            await vector_store.add_knowledge(app_id, k_id, content, emb, {"tags": ",".join(tags)},
+                                              source_mode="study")
     except Exception as e:
         logger.warning("Vector store falhou para estudo: %s", e)
 

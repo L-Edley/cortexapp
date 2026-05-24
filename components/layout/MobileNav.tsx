@@ -8,7 +8,8 @@ import {
   Lightbulb, 
   Wallet, 
   CalendarSync, 
-  Settings 
+  Settings,
+  Activity 
 } from "lucide-react";
 
 interface MobileNavProps {
@@ -21,6 +22,7 @@ export default function MobileNav({ activeView, onViewChange }: MobileNavProps) 
   const items: { id: ActiveView; label: string; icon: any }[] = [
     { id: "aion", label: "Aion", icon: Zap },
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "control", label: "Controle", icon: Activity },
     { id: "tasks", label: "Tarefas", icon: ListTodo },
     { id: "ideas", label: "Ideias", icon: Lightbulb },
     { id: "finances", label: "Finanças", icon: Wallet },

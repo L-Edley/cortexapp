@@ -243,6 +243,26 @@ async def provision_tenant(app_id: str) -> None:
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_desktop_study_sessions_app ON desktop_study_sessions (app_id)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_desktop_study_reports_app ON desktop_study_reports (app_id)")
 
+        # 12. Migração segura: colunas de taxonomia em memories
+        for col in ["domain", "niche", "topic", "scope", "source_mode"]:
+            try:
+                await conn.execute(f"ALTER TABLE memories ADD COLUMN {col} TEXT")
+            except Exception:
+                pass
+
+        # 13. Migração segura: colunas de taxonomia em knowledge
+        for col in ["domain", "niche", "topic", "scope", "source_mode"]:
+            try:
+                await conn.execute(f"ALTER TABLE knowledge ADD COLUMN {col} TEXT")
+            except Exception:
+                pass
+
+        # 14. Índices para busca por nicho/domínio
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_app_niche ON memories (app_id, niche)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_app_niche ON knowledge (app_id, niche)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_app_domain ON memories (app_id, domain)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_app_domain ON knowledge (app_id, domain)")
+
         await conn.commit()
         logger.info(f"Tenant database provisioned successfully: '{app_id}'")
 
@@ -269,22 +289,44 @@ async def is_tenant_provisioned(app_id: str) -> bool:
         logger.error(f"Erro ao verificar se o tenant '{app_id}' está provisionado: {e}")
         return False
 
-async def save_memory(app_id: str, content: str, type: str, metadata: Optional[Dict[str, Any]], confidence: float = 1.0) -> str:
+async def save_memory(
+    app_id: str,
+    content: str,
+    type: str,
+    metadata: Optional[Dict[str, Any]],
+    confidence: float = 1.0,
+    domain: Optional[str] = None,
+    niche: Optional[str] = None,
+    topic: Optional[str] = None,
+    scope: Optional[str] = None,
+    source_mode: Optional[str] = None,
+) -> str:
     """
     Salva uma nova memória na tabela memories. Retorna o ID gerado (UUID4).
     """
+    from aion.memory.memory_taxonomy import classify_memory_niche
     await provision_tenant(app_id)
     mem_id = str(uuid.uuid4())
     created_at = datetime.datetime.utcnow().isoformat()
     metadata_json = json.dumps(metadata) if metadata is not None else None
-    
+
+    if not domain or not niche:
+        tax = classify_memory_niche(app_id, content, metadata)
+        domain = domain or tax.domain
+        niche = niche or tax.niche
+        topic = topic or tax.topic
+        scope = scope or tax.scope
+        source_mode = source_mode or tax.source_mode
+
     async with tenant_db_connection(app_id) as conn:
         await conn.execute(
             """
-            INSERT INTO memories (id, app_id, content, type, metadata, confidence, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO memories (id, app_id, content, type, metadata, confidence,
+                                  domain, niche, topic, scope, source_mode, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (mem_id, app_id, content, type, metadata_json, confidence, created_at)
+            (mem_id, app_id, content, type, metadata_json, confidence,
+             domain, niche, topic, scope, source_mode, created_at)
         )
         await conn.commit()
         
@@ -295,24 +337,59 @@ async def save_memory(app_id: str, content: str, type: str, metadata: Optional[D
         
     return mem_id
 
-async def get_memories(app_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+async def get_memories(app_id: str, limit: int = 50, niche: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Retorna memórias recentes de um inquilino ordenadas por created_at de forma decrescente.
+    Se niche for fornecido, filtra pelo nicho.
     """
-    if not await is_tenant_provisioned(app_id):
-        return []
-        
+    await provision_tenant(app_id)
+
+    has_taxonomy_cols = True
     async with tenant_db_connection(app_id) as conn:
-        cursor = await conn.execute(
-            """
-            SELECT id, app_id, content, type, metadata, confidence, created_at
-            FROM memories
-            WHERE app_id = ?
-            ORDER BY created_at DESC
-            LIMIT ?
-            """,
-            (app_id, limit)
-        )
+        try:
+            cursor = await conn.execute("PRAGMA table_info(memories)")
+            cols = {row["name"] for row in await cursor.fetchall()}
+            has_taxonomy_cols = all(c in cols for c in ("domain", "niche", "topic", "scope", "source_mode"))
+        except Exception:
+            has_taxonomy_cols = False
+
+    async with tenant_db_connection(app_id) as conn:
+        if has_taxonomy_cols:
+            if niche:
+                cursor = await conn.execute(
+                    """
+                    SELECT id, app_id, content, type, metadata, confidence,
+                           domain, niche, topic, scope, source_mode, created_at
+                    FROM memories
+                    WHERE app_id = ? AND (niche = ? OR niche IS NULL OR niche = 'general')
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (app_id, niche, limit)
+                )
+            else:
+                cursor = await conn.execute(
+                    """
+                    SELECT id, app_id, content, type, metadata, confidence,
+                           domain, niche, topic, scope, source_mode, created_at
+                    FROM memories
+                    WHERE app_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (app_id, limit)
+                )
+        else:
+            cursor = await conn.execute(
+                """
+                SELECT id, app_id, content, type, metadata, confidence, created_at
+                FROM memories
+                WHERE app_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (app_id, limit)
+            )
         rows = await cursor.fetchall()
         result = []
         for r in rows:
@@ -322,34 +399,76 @@ async def get_memories(app_id: str, limit: int = 50) -> List[Dict[str, Any]]:
                     meta = json.loads(r["metadata"])
                 except Exception:
                     meta = r["metadata"]
-                    
-            result.append({
-                "id": r["id"],
-                "app_id": r["app_id"],
-                "content": r["content"],
-                "type": r["type"],
-                "metadata": meta,
-                "confidence": r["confidence"],
-                "created_at": r["created_at"]
-            })
+            if has_taxonomy_cols:
+                result.append({
+                    "id": r["id"],
+                    "app_id": r["app_id"],
+                    "content": r["content"],
+                    "type": r["type"],
+                    "metadata": meta,
+                    "confidence": r["confidence"],
+                    "domain": r["domain"] if r["domain"] else "general",
+                    "niche": r["niche"] if r["niche"] else "general",
+                    "topic": r["topic"] if r["topic"] else "",
+                    "scope": r["scope"] if r["scope"] else "app",
+                    "source_mode": r["source_mode"] if r["source_mode"] else "chat",
+                    "created_at": r["created_at"]
+                })
+            else:
+                result.append({
+                    "id": r["id"],
+                    "app_id": r["app_id"],
+                    "content": r["content"],
+                    "type": r["type"],
+                    "metadata": meta,
+                    "confidence": r["confidence"],
+                    "domain": "general",
+                    "niche": "general",
+                    "topic": "",
+                    "scope": "app",
+                    "source_mode": "chat",
+                    "created_at": r["created_at"]
+                })
         return result
 
-async def save_knowledge(app_id: str, content: str, tags: List[str], confidence: float = 1.0, expires_at: Optional[str] = None) -> str:
+async def save_knowledge(
+    app_id: str,
+    content: str,
+    tags: List[str],
+    confidence: float = 1.0,
+    expires_at: Optional[str] = None,
+    domain: Optional[str] = None,
+    niche: Optional[str] = None,
+    topic: Optional[str] = None,
+    scope: Optional[str] = None,
+    source_mode: Optional[str] = None,
+) -> str:
     """
     Salva um fragmento de conhecimento na tabela knowledge. Retorna o ID gerado (UUID4).
     """
+    from aion.memory.memory_taxonomy import classify_memory_niche
     await provision_tenant(app_id)
     k_id = str(uuid.uuid4())
     created_at = datetime.datetime.utcnow().isoformat()
     tags_json = json.dumps(tags)
-    
+
+    if not domain or not niche:
+        tax = classify_memory_niche(app_id, content, {"tags": tags})
+        domain = domain or tax.domain
+        niche = niche or tax.niche
+        topic = topic or tax.topic
+        scope = scope or tax.scope
+        source_mode = source_mode or tax.source_mode
+
     async with tenant_db_connection(app_id) as conn:
         await conn.execute(
             """
-            INSERT INTO knowledge (id, app_id, content, tags, confidence, expires_at, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO knowledge (id, app_id, content, tags, confidence, expires_at,
+                                   domain, niche, topic, scope, source_mode, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (k_id, app_id, content, tags_json, confidence, expires_at, created_at)
+            (k_id, app_id, content, tags_json, confidence, expires_at,
+             domain, niche, topic, scope, source_mode, created_at)
         )
         await conn.commit()
         
@@ -360,28 +479,53 @@ async def save_knowledge(app_id: str, content: str, tags: List[str], confidence:
         
     return k_id
 
-async def search_knowledge(app_id: str, query: str) -> List[Dict[str, Any]]:
+async def search_knowledge(app_id: str, query: str, niche: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     Busca por conhecimento contendo uma substring no conteúdo ou nas tags.
     Exclui entradas expiradas (expires_at no passado).
+    Se niche for fornecido, prioriza resultados do mesmo nicho.
     """
-    if not await is_tenant_provisioned(app_id):
-        return []
-        
+    await provision_tenant(app_id)
+
+    has_taxonomy_cols = True
+    async with tenant_db_connection(app_id) as conn:
+        try:
+            cursor = await conn.execute("PRAGMA table_info(knowledge)")
+            cols = {row["name"] for row in await cursor.fetchall()}
+            has_taxonomy_cols = all(c in cols for c in ("domain", "niche", "topic", "scope", "source_mode"))
+        except Exception:
+            has_taxonomy_cols = False
+
     async with tenant_db_connection(app_id) as conn:
         like_query = f"%{query}%"
         now = datetime.datetime.utcnow().isoformat()
-        cursor = await conn.execute(
-            """
-            SELECT id, app_id, content, tags, confidence, expires_at, created_at
-            FROM knowledge
-            WHERE app_id = ?
-              AND (content LIKE ? OR tags LIKE ?)
-              AND (expires_at IS NULL OR expires_at > ?)
-            ORDER BY created_at DESC
-            """,
-            (app_id, like_query, like_query, now)
-        )
+        if has_taxonomy_cols:
+            cursor = await conn.execute(
+                """
+                SELECT id, app_id, content, tags, confidence, expires_at,
+                       domain, niche, topic, scope, source_mode, created_at
+                FROM knowledge
+                WHERE app_id = ?
+                  AND (content LIKE ? OR tags LIKE ?)
+                  AND (expires_at IS NULL OR expires_at > ?)
+                ORDER BY
+                  CASE WHEN niche = ? THEN 0 ELSE 1 END,
+                  created_at DESC
+                """,
+                (app_id, like_query, like_query, now, niche or "")
+            )
+        else:
+            cursor = await conn.execute(
+                """
+                SELECT id, app_id, content, tags, confidence, expires_at, created_at
+                FROM knowledge
+                WHERE app_id = ?
+                  AND (content LIKE ? OR tags LIKE ?)
+                  AND (expires_at IS NULL OR expires_at > ?)
+                ORDER BY created_at DESC
+                """,
+                (app_id, like_query, like_query, now)
+            )
         rows = await cursor.fetchall()
         result = []
         for r in rows:
@@ -391,15 +535,36 @@ async def search_knowledge(app_id: str, query: str) -> List[Dict[str, Any]]:
                     parsed_tags = json.loads(r["tags"])
                 except Exception:
                     parsed_tags = [r["tags"]]
-            result.append({
-                "id": r["id"],
-                "app_id": r["app_id"],
-                "content": r["content"],
-                "tags": parsed_tags,
-                "confidence": r["confidence"],
-                "expires_at": r["expires_at"],
-                "created_at": r["created_at"]
-            })
+            if has_taxonomy_cols:
+                result.append({
+                    "id": r["id"],
+                    "app_id": r["app_id"],
+                    "content": r["content"],
+                    "tags": parsed_tags,
+                    "confidence": r["confidence"],
+                    "expires_at": r["expires_at"],
+                    "domain": r["domain"] if r["domain"] else "general",
+                    "niche": r["niche"] if r["niche"] else "general",
+                    "topic": r["topic"] if r["topic"] else "",
+                    "scope": r["scope"] if r["scope"] else "app",
+                    "source_mode": r["source_mode"] if r["source_mode"] else "chat",
+                    "created_at": r["created_at"]
+                })
+            else:
+                result.append({
+                    "id": r["id"],
+                    "app_id": r["app_id"],
+                    "content": r["content"],
+                    "tags": parsed_tags,
+                    "confidence": r["confidence"],
+                    "expires_at": r["expires_at"],
+                    "domain": "general",
+                    "niche": "general",
+                    "topic": "",
+                    "scope": "app",
+                    "source_mode": "chat",
+                    "created_at": r["created_at"]
+                })
         return result
 
 async def save_decision(app_id: str, content: str, reasoning: str) -> str:

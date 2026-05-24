@@ -7,7 +7,7 @@ from aion.agent.reasoner import (
     decide_response_source,
     compute_rag_confidence,
     build_rag_context,
-    build_cache_reply,
+    build_cache_answer,
     extract_reply,
     try_parse_tool_calls,
 )
@@ -36,10 +36,27 @@ class TestReasoner:
         assert compute_rag_confidence("") == 0.0
         assert compute_rag_confidence("no numbers here") == 0.0
 
-    def test_build_cache_reply(self):
-        reply = build_cache_reply("some context", "user input")
-        assert "Cached from RAG" in reply
-        assert "some context" in reply
+    def test_build_cache_answer_none_when_empty(self):
+        reply = build_cache_answer("user input")
+        assert reply == ""
+
+    def test_build_cache_answer_with_relevant_memory(self):
+        reply = build_cache_answer(
+            "qual meu nome?",
+            memories=[{"content": "O nome do usuário é João", "confidence": 0.9, "metadata": {}}],
+        )
+        assert "João" in reply
+        assert "Cached from RAG" not in reply
+        assert "[memory]" not in reply
+
+    def test_build_cache_answer_no_exposure(self):
+        reply = build_cache_answer(
+            "o que você sabe sobre Python?",
+            knowledge=[{"content": "Python é uma linguagem de programação", "confidence": 0.85, "tags": ["dev"]}],
+        )
+        assert "Relevant Knowledge" not in reply
+        assert "Relevant Memories" not in reply
+        assert "confidence" not in reply.lower() or "0.85" not in reply
 
     @pytest.mark.asyncio
     async def test_build_rag_context_empty(self, monkeypatch):
@@ -163,10 +180,13 @@ class TestAgentRun:
             patch("aion.agent.agent.get_emotional_context", new_callable=AsyncMock, return_value=type('obj', (object,), {'current_state': 'neutral', 'confidence': 1.0})()),
             patch("aion.agent.agent.detect_emotional_state", return_value=type('obj', (object,), {'state': 'neutral', 'confidence': 1.0})()),
             patch("aion.agent.agent.save_emotional_snapshot", new_callable=AsyncMock),
+            patch("aion.memory.embeddings.embed", return_value=None),
         ):
             response = await run("tenant-x", "user-1", "hello", {})
             assert response.response_source == "cache"
-            assert "Cached from RAG" in response.ui_reply
+            assert "Cached from RAG" not in response.ui_reply
+            assert "Relevant Memories" not in response.ui_reply
+            assert "Relevant Knowledge" not in response.ui_reply
             assert response.confidence == 0.90
 
     @pytest.mark.asyncio

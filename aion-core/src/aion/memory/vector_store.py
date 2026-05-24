@@ -35,8 +35,26 @@ async def add_memory(
     content: str,
     embedding: List[float],
     metadata: Optional[Dict[str, Any]] = None,
+    domain: Optional[str] = None,
+    niche: Optional[str] = None,
+    topic: Optional[str] = None,
+    scope: Optional[str] = None,
+    source_mode: Optional[str] = None,
 ) -> None:
+    from aion.memory.memory_taxonomy import classify_memory_niche, taxonomy_to_metadata
     meta = {"type": "memory", "source_id": memory_id}
+    if not domain or not niche:
+        tax = classify_memory_niche(app_id, content, metadata)
+        domain = domain or tax.domain
+        niche = niche or tax.niche
+        topic = topic or tax.topic
+        scope = scope or tax.scope
+        source_mode = source_mode or tax.source_mode
+    tax_meta = taxonomy_to_metadata(
+        classify_memory_niche(app_id, content, metadata),
+        {"domain": domain, "niche": niche, "topic": topic or "", "scope": scope or "app", "source_mode": source_mode or "chat"},
+    )
+    meta.update(tax_meta)
     if metadata:
         meta.update(metadata)
     collection = await get_or_create_collection(app_id)
@@ -55,8 +73,26 @@ async def add_knowledge(
     content: str,
     embedding: List[float],
     metadata: Optional[Dict[str, Any]] = None,
+    domain: Optional[str] = None,
+    niche: Optional[str] = None,
+    topic: Optional[str] = None,
+    scope: Optional[str] = None,
+    source_mode: Optional[str] = None,
 ) -> None:
+    from aion.memory.memory_taxonomy import classify_memory_niche, taxonomy_to_metadata
     meta = {"type": "knowledge", "source_id": knowledge_id}
+    if not domain or not niche:
+        tax = classify_memory_niche(app_id, content, metadata)
+        domain = domain or tax.domain
+        niche = niche or tax.niche
+        topic = topic or tax.topic
+        scope = scope or tax.scope
+        source_mode = source_mode or tax.source_mode
+    tax_meta = taxonomy_to_metadata(
+        classify_memory_niche(app_id, content, metadata),
+        {"domain": domain, "niche": niche, "topic": topic or "", "scope": scope or "app", "source_mode": source_mode or "chat"},
+    )
+    meta.update(tax_meta)
     if metadata:
         meta.update(metadata)
     collection = await get_or_create_collection(app_id)

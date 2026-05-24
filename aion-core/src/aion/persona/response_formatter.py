@@ -73,7 +73,8 @@ def format_response(
     gap_type: Optional[str] = None,
     provider_used: Optional[str] = None,
     emotional_state: Optional[str] = None,
-    action_executed: Optional[str] = None
+    action_executed: Optional[str] = None,
+    cognitive_data: Optional[Dict[str, Any]] = None,
 ) -> AionResponse:
     """
     Formata a resposta de texto crua para o schema estruturado do AION Core.
@@ -92,6 +93,13 @@ def format_response(
             reasoning_log="\n".join(reasoning_lines),
             emotional_state=emotional_state
         )
+    
+    data: Dict[str, Any] = {
+        "used_cache": used_cache,
+        "confidence": confidence
+    }
+    if cognitive_data:
+        data["cognitive"] = cognitive_data
         
     return AionResponse(
         status="success",
@@ -101,10 +109,7 @@ def format_response(
         should_speak=True,
         available_actions=actions,
         follow_up=follow_up,
-        data={
-            "used_cache": used_cache,
-            "confidence": confidence
-        },
+        data=data,
         debug=debug_info,
         
     # Campos de transição

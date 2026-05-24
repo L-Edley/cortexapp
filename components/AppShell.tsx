@@ -11,6 +11,7 @@ import IdeasView from "@/components/IdeasView";
 import FinancesView from "@/components/FinancesView";
 import DailyReview from "@/components/DailyReview";
 import SettingsView from "@/components/SettingsView";
+import ControlCenterView from "@/components/ControlCenter";
 import { hasSeededAionKnowledge, seedAionKnowledgeBase } from "@/lib/aionKnowledgeSeed";
 
 export type ActiveView = 
@@ -20,7 +21,8 @@ export type ActiveView =
   | "ideas" 
   | "finances" 
   | "review" 
-  | "settings";
+  | "settings"
+  | "control";
 
 export default function AppShell() {
   // Começamos com o CommandCenter (Aion) como tela inicial
@@ -50,6 +52,7 @@ export default function AppShell() {
           {activeView === "finances" && <FinancesView />}
           {activeView === "review" && <DailyReview />}
           {activeView === "settings" && <SettingsView />}
+          {activeView === "control" && <ControlCenterView />}
         </main>
 
         {/* Navegação Mobile */}

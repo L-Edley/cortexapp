@@ -449,7 +449,10 @@ async def save_technical_lesson(app_id: str, lesson: Dict[str, Any]) -> Optional
         app_id=app_id,
         content=knowledge_content,
         tags=combined_tags,
-        confidence=confidence
+        confidence=confidence,
+        domain="technology",
+        niche="dev",
+        source_mode="dev",
     )
     
     # 4. ChromaDB
@@ -464,7 +467,10 @@ async def save_technical_lesson(app_id: str, lesson: Dict[str, Any]) -> Optional
                 metadata={
                     "title": title,
                     "type": "dev_lesson"
-                }
+                },
+                domain="technology",
+                niche="dev",
+                source_mode="dev",
             )
     except Exception as e:
         logger.error("Failed to generate embedding for dev lesson: %s", e)

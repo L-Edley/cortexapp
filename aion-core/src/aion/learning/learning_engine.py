@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from aion.agent.reasoner import (
     build_rag_context,
+    build_cache_answer,
     compute_rag_confidence,
     decide_response_source,
     extract_reply,
@@ -57,25 +58,36 @@ async def _check_recent_cache(app_id: str, input: str) -> Optional[str]:
 
 
 async def _save_to_knowledge_and_vector(
-    app_id: str, content: str, tags: list, confidence: float, expires_at: Optional[str] = None
+    app_id: str, content: str, tags: list, confidence: float, expires_at: Optional[str] = None,
+    domain: Optional[str] = None, niche: Optional[str] = None, topic: Optional[str] = None,
+    scope: Optional[str] = None, source_mode: Optional[str] = None,
 ) -> str:
     from aion.memory import sqlite_store, vector_store
-    k_id = await sqlite_store.save_knowledge(app_id, content, tags, confidence, expires_at)
+    k_id = await sqlite_store.save_knowledge(app_id, content, tags, confidence, expires_at,
+                                              domain=domain, niche=niche, topic=topic,
+                                              scope=scope, source_mode=source_mode)
     emb = await _embed_text(content)
     if emb:
-        meta = {"tags": ",".join(tags)}
-        await vector_store.add_knowledge(app_id, k_id, content, emb, meta)
+        await vector_store.add_knowledge(app_id, k_id, content, emb, {"tags": ",".join(tags)},
+                                          domain=domain, niche=niche, topic=topic,
+                                          scope=scope, source_mode=source_mode)
     return k_id
 
 
 async def _save_to_memory_and_vector(
-    app_id: str, content: str, type_str: str, metadata: Optional[dict], confidence: float
+    app_id: str, content: str, type_str: str, metadata: Optional[dict], confidence: float,
+    domain: Optional[str] = None, niche: Optional[str] = None, topic: Optional[str] = None,
+    scope: Optional[str] = None, source_mode: Optional[str] = None,
 ) -> str:
     from aion.memory import sqlite_store, vector_store
-    mem_id = await sqlite_store.save_memory(app_id, content, type_str, metadata, confidence)
+    mem_id = await sqlite_store.save_memory(app_id, content, type_str, metadata, confidence,
+                                             domain=domain, niche=niche, topic=topic,
+                                             scope=scope, source_mode=source_mode)
     emb = await _embed_text(content)
     if emb:
-        await vector_store.add_memory(app_id, mem_id, content, emb, metadata)
+        await vector_store.add_memory(app_id, mem_id, content, emb, metadata,
+                                       domain=domain, niche=niche, topic=topic,
+                                       scope=scope, source_mode=source_mode)
     return mem_id
 
 
@@ -85,11 +97,16 @@ async def save_to_brain(
     classification: LearningClassification,
     response: str,
 ) -> Dict[str, Any]:
+    from aion.memory.memory_taxonomy import infer_query_niche
     action = classification.action
     if action == "discard":
         return {"saved": False, "target": "none", "id": None}
 
     result = {"saved": True, "target": classification.target, "id": None, "tags": classification.tags}
+
+    query_tax = infer_query_niche(app_id, input)
+    niche = query_tax.niche
+    domain = query_tax.domain
 
     if action == "save_memory":
         mem_id = await _save_to_memory_and_vector(
@@ -98,6 +115,7 @@ async def save_to_brain(
             classification.target,
             {"tags": classification.tags},
             classification.confidence,
+            domain=domain, niche=niche,
         )
         result["id"] = mem_id
 
@@ -113,6 +131,7 @@ async def save_to_brain(
             classification.tags,
             classification.confidence,
             expires,
+            domain=domain, niche=niche,
         )
         result["id"] = kid
 
@@ -135,6 +154,14 @@ async def run(
     context = context or {}
     debug = {}
 
+    from aion.memory import sqlite_store, embeddings, vector_store
+    memories = await sqlite_store.get_memories(app_id, limit=10)
+    knowledge = await sqlite_store.search_knowledge(app_id, input)
+    query_emb = embeddings.embed(input)
+    semantic_results = []
+    if query_emb:
+        semantic_results = await vector_store.semantic_search(app_id, query_emb, n_results=5)
+
     rag_text = await build_rag_context(app_id, input)
     confidence = compute_rag_confidence(rag_text)
     debug["rag_confidence"] = confidence
@@ -143,9 +170,11 @@ async def run(
     debug["gap_type"] = gap.gap_type.value
 
     if not should_call_provider(gap):
-        answer = rag_text if rag_text else "Já conheço essa informação."
+        answer = build_cache_answer(input, memories, knowledge, semantic_results)
+        if not answer:
+            answer = "Já conheço essa informação."
         return LearningResult(
-            answer=f"[Cached from RAG]\n\n{answer}",
+            answer=answer,
             raw_response=answer,
             source="cache",
             gap_type=gap.gap_type.value,
